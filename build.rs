@@ -28,5 +28,11 @@ fn generate_gl_bindings() -> ()
 fn main() -> ()
 {
     println!("cargo:rerun-if-changed=build.rs");
-    generate_gl_bindings()
+    generate_gl_bindings();
+    if cfg!(target_os = "windows")
+    {
+        winres::WindowsResource::new()
+            .set_icon("assets/icon.ico")
+            .compile().unwrap();
+    }
 }

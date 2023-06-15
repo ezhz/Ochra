@@ -1,11 +1,14 @@
 
 [package]
 name = 'ochra'
-version = '0.1.0'
+version = '0.1.1'
 edition = '2021'
 
 [build-dependencies]
 gl_generator = '=0.14.0'
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "=0.1.12"
 
 [dependencies]
 raw-gl-context = '=0.1.2'
