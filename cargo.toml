@@ -1,0 +1,17 @@
+
+[package]
+name = 'ochra'
+version = '0.1.0'
+edition = '2021'
+
+[build-dependencies]
+gl_generator = '=0.14.0'
+
+[dependencies]
+raw-gl-context = '=0.1.2'
+winit = '=0.26.1'
+image = '=0.24.0'
+notify = '=4.0.17'
+
+[profile.release]
+strip = 'debuginfo'
