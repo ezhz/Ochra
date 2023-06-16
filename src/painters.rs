@@ -178,15 +178,20 @@ impl Blitter
             out vec4 color;
             uniform sampler2D image;
             uniform ivec4 order;
+            uniform float gamma;
             void main()
             {
                 for(int channel = 0; channel < 4; channel++)
                 {
-                    color[channel] = texture
+                    color[channel] = pow
                     (
-                        image,
-                        vec2(st.x, 1.0 - st.y)
-                    )[order[channel]];
+                        texture
+                        (
+                            image,
+                            vec2(st.x, 1.0 - st.y)
+                        )[order[channel]],
+                        gamma
+                    );
                 }
             }
             "
@@ -212,10 +217,12 @@ impl Blitter
     (
         &mut self, 
         image: Image<T>,
-        channel_order: [i32; 4]
+        channel_order: [i32; 4],
+        gamma: f32
     ) -> ()
     {
-        self.canvas.set_uniform("order", channel_order);  
+        self.canvas.set_uniform("order", channel_order);
+        self.canvas.set_uniform("gamma", gamma);
         fill_texture
         (
             &self.pointers,

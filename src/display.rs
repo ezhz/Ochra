@@ -120,7 +120,8 @@ impl PictureDisplay
                     channel_count: still.channel_count
                 },
                 still.channel_interpretation
-                    .swizzle_for_rgba()
+                    .swizzle_for_rgba(),
+                still.gamma
             ),
             picture::PixelData::SixteenBit(data)
                 => self.0.upload_texture
@@ -132,7 +133,8 @@ impl PictureDisplay
                     channel_count: still.channel_count
                 },
                 still.channel_interpretation
-                    .swizzle_for_rgba()
+                    .swizzle_for_rgba(),
+                still.gamma
             ),
             picture::PixelData::ThirtyTwoBit(data)
                 => self.0.upload_texture
@@ -144,7 +146,8 @@ impl PictureDisplay
                     channel_count: still.channel_count
                 },
                 still.channel_interpretation
-                    .swizzle_for_rgba()
+                    .swizzle_for_rgba(),
+                still.gamma
             )
         }
     }

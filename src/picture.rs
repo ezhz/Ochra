@@ -98,7 +98,8 @@ pub struct Still
     pub pixel_data: PixelData,
     pub resolution: [u32; 2], // **
     pub channel_count: ogl::ChannelCount,
-    pub channel_interpretation: ChannelInterpretation
+    pub channel_interpretation: ChannelInterpretation,
+    pub gamma: f32
 }
 
 impl TryFrom<image::DynamicImage> for Still
@@ -146,7 +147,8 @@ impl TryFrom<image::DynamicImage> for Still
             pixel_data, 
             resolution, 
             channel_count, 
-            channel_interpretation
+            channel_interpretation,
+            gamma: 1.0
         };
         Ok(this)
     }
@@ -223,7 +225,8 @@ impl From<image::Frame> for Sample<Still>
             resolution: [resolution.0, resolution.1],
             channel_count: ogl::ChannelCount::Four,
             pixel_data: PixelData::EightBit(buffer.into_raw()),
-            channel_interpretation: ChannelInterpretation::RGBA
+            channel_interpretation: ChannelInterpretation::RGBA,
+            gamma: 1.0
             
         };
         Self{data: still, interval}
@@ -318,7 +321,7 @@ where
         let format = reader.format()
             .ok_or(Error::UnsupportedImageFormat)?;
         let this = match format
-        {          
+        {
             Png =>
             {
                 let reader = reader.into_inner();
@@ -349,6 +352,20 @@ where
                 let motion = Motion::try_from(decoder)?;
                 Self::Motion(motion)
             }
+            OpenExr => Self::Still
+            (
+                reader.decode()
+                    .map_err(Error::ImageError)
+                    .and_then(Still::try_from)
+                    .map
+                    (
+                        |mut s|
+                        {
+                            s.gamma = 1.0 / 2.2;
+                            s
+                        }
+                    )
+            ),
             _ => Self::Still
             (
                 reader.decode()
