@@ -239,12 +239,18 @@ impl GLWindow
             .with_window_icon(None)
             .with_decorations(false)
             .with_resizable(false)
-            .with_always_on_top(true)
             .build(&event_loop)
             .unwrap();
-        let context = GlContext
-            ::create(&window, Default::default()).unwrap();
-        context.make_current();
+        let context = unsafe 
+        {
+            let context = GlContext::create
+            (
+                &window, 
+                Default::default()
+            ).unwrap();
+            context.make_current();
+            context
+        };
         let pointers = FunctionPointers
             ::load(|s| context.get_proc_address(s));
         unsafe
