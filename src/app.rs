@@ -35,6 +35,11 @@ impl App
         (Self{display, state: Some(state)}, event_loop)
     }
     
+    pub fn change_path<P: AsRef<Path>>(&mut self, path: P) -> ()
+    {
+        self.state = Some(State::Init(path.as_ref().to_owned()))
+    }
+
     fn load_picture(&mut self, entries: LiveNavigator) -> State
     {
         match picture::open(entries.selected())

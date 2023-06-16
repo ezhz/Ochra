@@ -52,6 +52,8 @@ fn main() -> !
                     VirtualKeyCode::Right => app.navigate(1),
                     _ => {}
                 }
+                WindowEvent::DroppedFile(path) =>
+                    app.change_path(path),
                 _ => {}
             }
             Event::MainEventsCleared => app.refresh(),
