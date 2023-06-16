@@ -178,7 +178,7 @@ impl LiveNavigator
             false => 0
         };
         let extensions = extensions.clone();
-        let watcher = Watcher::watch(&path).map_err(Error::Notify)?;
+        let watcher = Watcher::watch(&FileType::as_dirpath(path)?).map_err(Error::Notify)?;
         let this = Self{filepaths, extensions, cursor, watcher};
         this.nonempty()?;
         Ok(this)
