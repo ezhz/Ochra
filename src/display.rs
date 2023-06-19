@@ -1,7 +1,34 @@
 
+use std::path::PathBuf;
 use super::{ogl::*, painters::*, picture, vector::*, quad::*};
 use winit::{window::*, event_loop::*, dpi::*};
 use raw_gl_context::*;
+use raw_window_handle::*;
+use windows::
+{
+    core::PSTR, 
+    Win32::
+    {
+        self,
+        UI::ColorSystem::GetICMProfileA,
+        Foundation::
+        {
+            GetLastError,
+            WIN32_ERROR
+        }
+    }
+};
+
+// ----------------------------------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum QuerryMonitorICCError
+{
+    UnsupportedOSError,
+    Win32Error(WIN32_ERROR),
+    UnknownWindowsError,
+    FromUtf8Error(std::string::FromUtf8Error)
+}
 
 // ----------------------------------------------------------------------------------------------------
 
@@ -274,6 +301,59 @@ impl GLWindow
         (this, event_loop)
     }
     
+    fn querry_monitor_icc(&self) -> std::result::Result
+    <
+        PathBuf,
+        QuerryMonitorICCError
+    >
+    {
+        if let RawWindowHandle::Win32(handle) = self.window.raw_window_handle()
+        {
+            if cfg!(target_os = "windows")
+            {
+                let hwnd = Win32::Foundation::HWND(handle.hwnd as _);
+                let mut buffer_size: u32 = 0;
+                return unsafe
+                {
+                    let hdc = Win32::Graphics::Gdi::GetDC(hwnd);
+                    match GetICMProfileA
+                    (
+                        hdc,
+                        &mut buffer_size as *mut u32,
+                        PSTR::null()
+                    ).as_bool()
+                    {
+                        true => Err(QuerryMonitorICCError::UnknownWindowsError),
+                        false => match GetLastError()
+                        {
+                            WIN32_ERROR(122) => // ERROR_INSUFFICIENT_BUFFER
+                            {
+                                let mut filename: Vec<u8> = vec![0; buffer_size as _];
+                                let pszfilename = PSTR(filename.as_mut_ptr());
+                                match GetICMProfileA
+                                (
+                                    hdc,
+                                    &mut buffer_size as *mut u32,
+                                    pszfilename
+                                ).as_bool()
+                                {
+                                    true => match pszfilename.to_string()
+                                    {
+                                        Ok(path) => Ok(PathBuf::from(path)),
+                                        Err(error) => Err(QuerryMonitorICCError::FromUtf8Error(error))
+                                    }
+                                    false => Err(QuerryMonitorICCError::Win32Error(GetLastError()))
+                                }
+                            }
+                            error @ _ => Err(QuerryMonitorICCError::Win32Error(error))
+                        }
+                    }
+                }
+            }
+        };
+        Err(QuerryMonitorICCError::UnsupportedOSError)
+    }
+
     fn scale_factor(&self) -> f64
     {
          self.window.scale_factor()
@@ -356,7 +436,8 @@ pub struct Display
 {
     window: GLWindow,
     renderer: Renderer,
-    size: Size
+    size: Size,
+    icc: lcms2::Profile
 }
 
 impl Display
@@ -365,15 +446,38 @@ impl Display
     {
         let (window, event_loop) = GLWindow::new();
         let renderer = Renderer::new(&window.pointers);
+        let icc = match window.querry_monitor_icc()
+        {
+            Ok(path) => match lcms2::Profile::new_file(path)
+            {
+                Ok(profile) => profile,
+                Err(error) =>
+                {
+                    eprintln!("{error:?}");
+                    lcms2::Profile::new_srgb()
+                }
+            }
+            Err(error) =>
+            {
+                eprintln!("{error:?}");
+                lcms2::Profile::new_srgb()
+            }
+        };
         let this = Self
         {
             window, 
             renderer,
-            size: PhysicalSize::new(0, 0).into()
+            size: PhysicalSize::new(0, 0).into(),
+            icc
         };
         (this, event_loop)
     }
     
+    pub fn get_icc(&self) -> &lcms2::Profile
+    {
+        &self.icc
+    }
+
     pub fn visible(&self, visible: bool) -> ()
     {
         self.window.visible(visible)

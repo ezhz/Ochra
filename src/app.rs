@@ -27,8 +27,7 @@ pub struct App
 
 impl App
 {
-    pub fn new<P: AsRef<Path>>(path: P) 
-        -> (Self, winit::event_loop::EventLoop<()>)
+    pub fn new<P: AsRef<Path>>(path: P) -> (Self, winit::event_loop::EventLoop<()>)
     {
         let (display, event_loop) = display::Display::new();
         let state = State::Init(path.as_ref().to_owned());
@@ -75,8 +74,7 @@ impl App
             State::Init(path) =>
             {
                 self.display.visible(true);
-                match LiveNavigator
-                    ::from_path(&path, &picture::extensions())
+                match LiveNavigator::from_path(&path, &picture::extensions())
                 {
                     Ok(entries) => self.load_picture(entries),
                     Err(error) => 
@@ -93,19 +91,30 @@ impl App
                 {
                     match result
                     {
-                        Ok(still) => self.display.show_picture(&still),
+                        Ok(mut still) => match still.apply_icc_transform(self.display.get_icc())
+                        {
+                            Ok(()) => self.display.show_picture(&still),
+                            Err(error) => self.display.show_x(&error)
+                        }
                         Err(error) => self.display.show_x(&error)
                     }
                     State::Idle(entries, Instant::now())
                 }                
-                Picture::Motion(ref mut streamer)
-                    => match streamer.next()
+                Picture::Motion(ref mut streamer) => match streamer.next()
                 {
                     Ok(frame) =>
                     {
                         if let Some(still) = frame
                         {
-                            self.display.show_picture(&still)
+                            match still.clone()
+                            {
+                                Ok(mut still) => match still.apply_icc_transform(self.display.get_icc())
+                                {
+                                    Ok(()) => self.display.show_picture(&still),
+                                    Err(error) => self.display.show_x(&error)
+                                }
+                                Err(error) => self.display.show_x(&error)
+                            }
                         }
                         State::Drawing(entries, picture)
                     }
