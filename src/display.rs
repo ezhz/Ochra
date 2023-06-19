@@ -4,6 +4,8 @@ use super::{ogl::*, painters::*, picture, vector::*, quad::*};
 use winit::{window::*, event_loop::*, dpi::*};
 use raw_gl_context::*;
 use raw_window_handle::*;
+
+#[cfg(target_os = "windows")]
 use windows::
 {
     core::PSTR, 
@@ -124,6 +126,28 @@ impl XDisplay
 
 // ----------------------------------------------------------------------------------------------------
 
+struct Loader(Filler);
+
+impl Loader
+{
+    fn new(pointers: &FunctionPointers) -> Self
+    {
+        Self(Filler::new(pointers))
+    }
+
+    fn draw(&mut self, size: PhysicalSize<u32>) -> ()
+    {
+        self.0.fill
+        (
+            [0.0, 0.0, 0.0, 1.0], 
+            [0, 0], 
+            [size.width, size.height]
+        )
+    }
+}
+
+// ----------------------------------------------------------------------------------------------------
+
 struct PictureDisplay(Blitter);
 
 impl PictureDisplay
@@ -133,7 +157,7 @@ impl PictureDisplay
         Self(Blitter::new(pointers))
     }
     
-    fn setup(&mut self, still: &picture::Still) -> ()
+    fn setup(&mut self, still: &picture::StillPicture) -> ()
     {
         match &still.pixel_data
         {
@@ -190,6 +214,7 @@ impl PictureDisplay
 enum RenderMode
 {
     Uninitialized,
+    Loader,
     Picture,
     Error
 }
@@ -198,6 +223,7 @@ enum RenderMode
 
 struct Renderer
 {
+    loder: Loader,
     picture: PictureDisplay,
     error: XDisplay,
     mode: RenderMode
@@ -209,19 +235,25 @@ impl Renderer
     {
         Self
         {
+            loder: Loader::new(pointers),
             picture: PictureDisplay::new(pointers),
             error: XDisplay::new(pointers),
             mode: RenderMode::Uninitialized
         }
     }
     
+    fn use_loader(&mut self) -> ()
+    {
+        self.mode = RenderMode::Loader
+    }
+
     fn prepare_error(&mut self) -> LogicalSize<f32>
     {
         self.mode = RenderMode::Error;
         self.error.size
     }
 
-    fn prepare_picture(&mut self, still: &picture::Still) -> ()
+    fn prepare_picture(&mut self, still: &picture::StillPicture) -> ()
     {
         self.mode = RenderMode::Picture;
         self.picture.setup(still)
@@ -237,6 +269,7 @@ impl Renderer
         use RenderMode::*;
         match &self.mode
         {
+            Loader => self.loder.draw(size),
             Picture => self.picture.draw(size),
             Error => self.error.draw(scale_factor),
             _ => {}
@@ -501,7 +534,13 @@ impl Display
         self.window.set_position(position)
     }
 
-    pub fn show_picture(&mut self, still: &picture::Still) -> ()
+    pub fn show_loader(&mut self, size: PhysicalSize<u32>) -> ()
+    {
+        self.renderer.use_loader();
+        self.request_draw(size)
+    }
+
+    pub fn show_picture(&mut self, still: &picture::StillPicture) -> ()
     {
         self.renderer.prepare_picture(still);
         let size = PhysicalSize::<u32>::from(still.resolution);

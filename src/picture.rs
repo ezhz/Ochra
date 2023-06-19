@@ -132,7 +132,7 @@ pub enum PixelData
 
 // ----------------------------------------------------------------------------------------------------
 
-pub struct Still
+pub struct StillPicture
 {
     pub pixel_data: PixelData,
     pub resolution: [u32; 2], // **
@@ -142,7 +142,7 @@ pub struct Still
     pub icc: lcms2::Profile
 }
 
-impl TryFrom<(lcms2::Profile, image::DynamicImage)> for Still
+impl TryFrom<(lcms2::Profile, image::DynamicImage)> for StillPicture
 {
     type Error = PictureError;
     fn try_from((icc, dynamic_image): (lcms2::Profile, image::DynamicImage)) -> PictureResult<Self>
@@ -195,7 +195,7 @@ impl TryFrom<(lcms2::Profile, image::DynamicImage)> for Still
     }
 }
 
-impl Still
+impl StillPicture
 {
     pub fn apply_icc_transform(&mut self, target: &lcms2::Profile) -> PictureResult<()>
     {
@@ -314,71 +314,20 @@ impl Still
 
 // ----------------------------------------------------------------------------------------------------
 
-pub struct IteratorStasher<I: Iterator>
+pub struct Frame
 {
-    iterator: I,
-    stash: Vec<I::Item>
-}
-
-impl<I: Iterator> IteratorStasher<I>
-{
-    fn new(iterator: I) -> Self
-    {
-        Self{iterator, stash: vec![]}
-    }
-    
-    fn stash_next(&mut self) -> Option<()>
-    {
-        self.iterator.next().map
-            (|entry| self.stash.push(entry))
-    }
-}
-
-// ----------------------------------------------------------------------------------------------------
-
-struct IteratorLooper<I: Iterator>
-{
-    stasher: IteratorStasher<I>,
-    playhead: usize
-}
-
-impl<I: Iterator> IteratorLooper<I>
-{
-    fn new(iterator: I) -> PictureResult<Self>
-    {
-        let mut stasher = IteratorStasher::new(iterator);
-        stasher.stash_next()
-            .ok_or(PictureError::ZeroFrames)
-            .map(|()| Self{stasher, playhead: 0})
-    }
-
-    fn advance(&mut self) -> &I::Item
-    {
-        self.stasher.stash_next();
-        let entry = &self.stasher.stash[self.playhead];
-        self.playhead = 
-            (self.playhead + 1) %
-            self.stasher.stash.len();
-        entry
-    }
-}
-
-// ----------------------------------------------------------------------------------------------------
-
-pub struct Sample<D>
-{
-    pub data: D,
+    pub still: StillPicture,
     pub interval: Duration
 }
 
-impl From<(lcms2::Profile, image::Frame)> for Sample<Still>
+impl From<(lcms2::Profile, image::Frame)> for Frame
 {
     fn from((icc, frame): (lcms2::Profile, image::Frame)) -> Self
     {
         let interval = Duration::from(frame.delay());
         let buffer = frame.into_buffer();
         let resolution = buffer.dimensions();
-        let still = Still
+        let still = StillPicture
         {
             resolution: [resolution.0, resolution.1],
             channel_count: ogl::ChannelCount::Four,
@@ -387,62 +336,59 @@ impl From<(lcms2::Profile, image::Frame)> for Sample<Still>
             gamma: 1.0,
             icc
         };
-        Self{data: still, interval}
+        Self{still, interval}
     }
 }
 
 // ----------------------------------------------------------------------------------------------------
 
-pub struct StreamingPlayer<I: Iterator>
+pub struct FramesPlayer
 {
-    looper: IteratorLooper<I>,
+    frames: Vec<Frame>,
+    playhead: usize,
     onset: Instant,
     interval: Duration
 }
 
-impl<I, D> StreamingPlayer<I>
-where
-    I: Iterator<Item = PictureResult<Sample<D>>>
+impl FramesPlayer
 {
-    pub fn new(iterator: I) -> PictureResult<Self>
+    fn new(frames: Vec<Frame>) -> PictureResult<Self>
     {
-        let this = Self
-        {
-            looper: IteratorLooper::new(iterator)?,
-            onset: Instant::now(),
-            interval: Duration::ZERO
-        };
-        Ok(this)
+        Ok
+        (
+            Self
+            {
+                frames: match frames.len() == 0
+                {
+                    true => return Err(PictureError::ZeroFrames),
+                    false => frames
+                },
+                playhead: 0,
+                onset: Instant::now(),
+                interval: Duration::ZERO
+            }
+        )
     }
 
-    pub fn next(&mut self) -> std::result::Result<Option<&D>, &PictureError>
+    pub fn next(&mut self) -> Option<&StillPicture>
     {
         if self.onset.elapsed() >= self.interval
         {
-            return self.looper.advance().as_ref().map
-            (
-                |sample|
-                {
-                    self.onset = Instant::now();
-                    self.interval = sample.interval;
-                    Some(&sample.data)
-                }
-            )
+            let entry = &self.frames[self.playhead];
+            self.playhead = (self.playhead + 1) % self.frames.len();
+            self.onset = Instant::now();
+            self.interval = entry.interval;
+            return Some(&entry.still)
         }
-        Ok(None)
+        None
     }
 }
 
 // ----------------------------------------------------------------------------------------------------
 
-type Motion = StreamingPlayer
-<
-    Box<dyn Iterator<Item = PictureResult<Sample<Still>>>>
->;
-
 struct Newtype<T>(T); // E0119
 
-impl<A> TryFrom<(lcms2::Profile, Newtype<A>)> for Motion
+impl<A> TryFrom<(lcms2::Profile, Newtype<A>)> for FramesPlayer
 where
     A: image::AnimationDecoder<'static>
 {
@@ -450,20 +396,17 @@ where
     fn try_from((icc, decoder): (lcms2::Profile, Newtype<A>)) -> PictureResult<Self>
     {
         let icc = icc.icc()?;
-        let frames = decoder.0.into_frames();
-        let samples = frames.map
+        let frames = decoder.0.into_frames().map
         (
             move |result| result.map_err(PictureError::ImageError)
                 .map
                 (
                     |frame| lcms2::Profile::new_icc(&icc)
                         .map_err(PictureError::from)
-                        .map(|icc| Sample::from((icc, frame)))
+                        .map(|icc| Frame::from((icc, frame)))
                 )
-        ).flatten();
-        let samples = Box::new(samples) as _;
-        let streamer = StreamingPlayer::new(samples)?;
-        Ok(streamer)
+        ).flatten().collect::<Result<Vec<_>, _>>()?;
+        FramesPlayer::new(frames)
     }
 }
 
@@ -471,8 +414,8 @@ where
 
 pub enum Picture
 {
-    Still(PictureResult<Still>),
-    Motion(Motion)
+    Still(StillPicture),
+    Motion(FramesPlayer)
 }
 
 impl<R> TryFrom<image::io::Reader<R>> for Picture
@@ -486,7 +429,6 @@ where
         let srgb = lcms2::Profile::new_srgb();
         let this = match format
         {
-
             Png =>
             {
                 let reader = reader.into_inner();
@@ -503,13 +445,13 @@ where
                     (
                         image::DynamicImage::from_decoder(decoder)
                             .map_err(PictureError::ImageError)
-                            .and_then(|d| Still::try_from((icc, d)))
+                            .and_then(|d| StillPicture::try_from((icc, d)))?
                     ),
                     true =>
                     {
                         let decoder = Newtype(decoder.apng());
-                        let motion = Motion::try_from((icc, decoder))?;
-                        Self::Motion(motion)
+                        let player = FramesPlayer::try_from((icc, decoder))?;
+                        Self::Motion(player)
                     }
                 }
             }
@@ -527,7 +469,7 @@ where
                 (
                     image::DynamicImage::from_decoder(decoder)
                         .map_err(PictureError::ImageError)
-                        .and_then(|d| Still::try_from((icc, d)))
+                        .and_then(|d| StillPicture::try_from((icc, d)))?
                 )
             }
             Gif =>
@@ -536,14 +478,14 @@ where
                 let decoder = gif::GifDecoder::new(reader)
                     .map_err(PictureError::ImageError)?;
                 let decoder = Newtype(decoder);
-                let motion = Motion::try_from((srgb, decoder))?;
-                Self::Motion(motion)
+                let player = FramesPlayer::try_from((srgb, decoder))?;
+                Self::Motion(player)
             }
             OpenExr => Self::Still
             (
                 reader.decode()
                     .map_err(PictureError::ImageError)
-                    .and_then(|d| Still::try_from((srgb, d)))
+                    .and_then(|d| StillPicture::try_from((srgb, d)))
                     .map
                     (
                         |mut s|
@@ -551,13 +493,13 @@ where
                             s.gamma = 1.0 / 2.2;
                             s
                         }
-                    )
+                    )?
             ),
             _ => Self::Still
             (
                 reader.decode()
                     .map_err(PictureError::ImageError)
-                    .and_then(|d| Still::try_from((srgb, d)))
+                    .and_then(|d| StillPicture::try_from((srgb, d)))?
             )
         };
         Ok(this)
@@ -568,6 +510,13 @@ pub fn open(filepath: &std::path::Path) -> PictureResult<Picture>
 {
     image::io::Reader::open(filepath).map_err(PictureError::IO)
         .and_then(Picture::try_from)
+}
+
+// ----------------------------------------------------------------------------------------------------
+
+pub fn read_dimensions(filepath: &std::path::Path) -> PictureResult<(u32, u32)>
+{
+    image::image_dimensions(filepath).map_err(PictureError::ImageError)
 }
 
 // ----------------------------------------------------------------------------------------------------
