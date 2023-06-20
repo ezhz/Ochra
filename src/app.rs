@@ -235,6 +235,11 @@ impl App
         self.state = Some(state)
     }
     
+    pub fn on_scale_factor_changed(&mut self) -> ()
+    {
+        self.display.on_scale_factor_changed()
+    }
+
     pub fn drag_window(&self) -> ()
     {
         self.display.drag()

@@ -21,6 +21,8 @@ use windows::
     }
 };
 
+const FONT: &[u8] = include_bytes!("../assets/font.ttf");
+
 // ----------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -58,68 +60,61 @@ impl From<Vector2> for [i32; 2]
 
 // ----------------------------------------------------------------------------------------------------
 
-struct XDisplay
+struct ErrorDisplay
 {
     size: LogicalSize<f32>,
-    canvas: Canvas,
     filler: Filler,
+    typewriter: Typewriter,
     window: Quad,
-    x: Quad
 }
 
-impl XDisplay
+impl ErrorDisplay
 {
     fn new(pointers: &FunctionPointers) -> Self
     {
         let window = Quad::new([0.0, 0.0], [500.0, 500.0]);
-        let mut x = Quad::new([0.0, 0.0], [33.0, 33.0]);
-        x.center(&window);
         Self
         {
             size: LogicalSize::<f32>::from(window.size().0),
             filler: Filler::new(pointers),
-            canvas: Canvas::new
+            typewriter: Typewriter::new
             (
                 pointers,
-                &"
-                #version 330 core
-                in vec2 st;
-                out vec4 color;
-                void main()
-                {
-                    float w = 0.036;
-                    float s = 0.015;
-                    float r;
-                    for(int d = 0; d < 2; d++)
-                    {
-                        float x = bool(d) ? st.x : 1.0 - st.x;
-                        r += smoothstep(1.0 - w, 1.0 - w + s, x + st.y)
-                            * smoothstep(1.0 + w, 1.0 + w - s, x + st.y);
-                    }
-                    color = vec4(vec3(1.0 - r), 0.8);
-                }
-                "
+                FONT,
+                16
             ),
-            window,
-            x
+            window
         }
+    }
+
+    fn set_message(&mut self, message: &str) -> ()
+    {
+        self.typewriter.layout_text(message, 60)
+    }
+
+    fn set_font_size(&mut self, size: u16) -> ()
+    {
+        self.typewriter.change_font_size(size)
     }
 
     fn draw(&mut self, scale: f64) -> ()
     {
-        let (mut window, mut x) = (self.window, self.x);
+        let mut window = self.window;
         window.scale(Vector([scale, scale]));
-        x.scale(Vector([scale, scale]));
         self.filler.fill
         (
-            [1.0; 4], 
+            [1.0; 4],
             window.min().into(), 
             window.size().into()
         );
-        self.canvas.draw
+        let [width, height] = self.typewriter.resolution();
+        let Vector([x, y]) = window.mid();
+        self.typewriter.draw
         (
-            x.min().into(),
-            x.size().into()
+            [
+                (x - width as f64 / 2.0) as _,
+                (y - height as f64 / 2.0) as _
+            ]
         )
     }
 }
@@ -223,9 +218,9 @@ enum RenderMode
 
 struct Renderer
 {
-    loder: Loader,
+    loader: Loader,
     picture: PictureDisplay,
-    error: XDisplay,
+    error: ErrorDisplay,
     mode: RenderMode
 }
 
@@ -235,9 +230,9 @@ impl Renderer
     {
         Self
         {
-            loder: Loader::new(pointers),
+            loader: Loader::new(pointers),
             picture: PictureDisplay::new(pointers),
-            error: XDisplay::new(pointers),
+            error: ErrorDisplay::new(pointers),
             mode: RenderMode::Uninitialized
         }
     }
@@ -247,9 +242,11 @@ impl Renderer
         self.mode = RenderMode::Loader
     }
 
-    fn prepare_error(&mut self) -> LogicalSize<f32>
+    fn prepare_error<E>(&mut self, error: &E) -> LogicalSize<f32>
+    where E: std::error::Error
     {
         self.mode = RenderMode::Error;
+        self.error.set_message(&error.to_string());
         self.error.size
     }
 
@@ -269,7 +266,7 @@ impl Renderer
         use RenderMode::*;
         match &self.mode
         {
-            Loader => self.loder.draw(size),
+            Loader => self.loader.draw(size),
             Picture => self.picture.draw(size),
             Error => self.error.draw(scale_factor),
             _ => {}
@@ -315,7 +312,7 @@ impl GLWindow
             ::load(|s| context.get_proc_address(s));
         unsafe
         {
-            pointers.ClearColor(0.0, 0.0, 0.0, 0.0);
+            pointers.ClearColor(0.0, 0.0, 0.0, 1.0);
             pointers.Enable(BLEND);
             pointers.BlendFuncSeparate
             (
@@ -469,7 +466,7 @@ pub struct Display
 {
     window: GLWindow,
     renderer: Renderer,
-    size: Size,
+    size: PhysicalSize<u32>,
     icc: lcms2::Profile
 }
 
@@ -478,7 +475,7 @@ impl Display
     pub fn new() -> (Self, EventLoop<()>)
     {
         let (window, event_loop) = GLWindow::new();
-        let renderer = Renderer::new(&window.pointers);
+        let mut renderer = Renderer::new(&window.pointers);
         let icc = match window.querry_monitor_icc()
         {
             Ok(path) => match lcms2::Profile::new_file(path)
@@ -496,6 +493,8 @@ impl Display
                 lcms2::Profile::new_srgb()
             }
         };
+        let font_size = 16.0 * window.scale_factor();
+        renderer.error.set_font_size(font_size as _);
         let this = Self
         {
             window, 
@@ -552,17 +551,33 @@ impl Display
         E: std::error::Error
     {
         eprintln!("{:?}", error);
-        let size = self.renderer.prepare_error();
+        let size = self.renderer.prepare_error(error);
         self.request_draw(size)
+    }
+
+    pub fn on_scale_factor_changed(&mut self) -> ()
+    {
+        let font_size = 16.0 * self.window.scale_factor();
+        self.renderer.error.set_font_size(font_size as _);
+        if let RenderMode::Error = self.renderer.mode
+        {
+            let size = self.renderer.error.size;
+            let scale_factor = self.window.scale_factor();
+            self.size = PhysicalSize
+            {
+                width: (size.width as f64 * scale_factor).round() as _,
+                height: (size.height as f64 * scale_factor).round() as _
+            };
+        }
+        self.request_draw(self.size)
     }
 
     pub fn draw(&mut self) -> ()
     {
         self.window.set_size(self.size);
         let scale_factor = self.window.scale_factor();
-        let size = self.size.to_physical::<u32>(scale_factor);
         unsafe{self.window.pointers.Clear(COLOR_BUFFER_BIT)}
-        self.renderer.draw(size, scale_factor);
+        self.renderer.draw(self.size, scale_factor);
         self.window.context.swap_buffers()
     }
 }

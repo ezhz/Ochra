@@ -93,7 +93,7 @@ impl<T: BBox + XForm> Align for T {}
 // ----------------------------------------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
-pub struct Quad([Vector2; 2]);
+pub struct Quad(pub [Vector2; 2]);
 
 impl Quad
 {

@@ -54,6 +54,8 @@ fn main() -> !
                 }
                 WindowEvent::DroppedFile(path) =>
                     app.change_path(path),
+                WindowEvent::ScaleFactorChanged{..} =>
+                    app.on_scale_factor_changed(),
                 _ => {}
             }
             Event::MainEventsCleared => app.refresh(),
