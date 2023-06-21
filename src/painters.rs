@@ -339,7 +339,8 @@ struct Paragraph
 {
     rasterizer: FontRasterizer,
     shaper: LineShaper,
-    glyphs: Vec<Glyph>
+    glyphs: Vec<Glyph>,
+    dimensions: [u32; 2]
 }
 
 impl Paragraph
@@ -350,10 +351,11 @@ impl Paragraph
         {
             rasterizer: FontRasterizer::new(font, size),
             shaper: LineShaper::new(font, size),
-            glyphs: vec![]
+            glyphs: vec![],
+            dimensions: Default::default()
         }
     }
-    
+
     fn layout_glyphs(&mut self, text: &str, wrap: i32) -> ()
     {
         let paragraph = textwrap::fill(text, wrap as usize);
@@ -376,18 +378,19 @@ impl Paragraph
                     self.rasterizer.units_per_em as i32; // **
             }
         }
-        self.glyphs = glyphs
-    }
-    
-    fn resolution(&self) -> [u32; 2]
-    {
+        self.glyphs = glyphs;
         let mut max = [0, 0];
         for Glyph{origin, resolution, ..} in &self.glyphs
         {
             max[0] = max[0].max((origin.0 + resolution.0 as i32) as u32);
             max[1] = max[1].max((origin.1 + resolution.1 as i32) as u32);
         }        
-        max
+        self.dimensions = max
+    }
+
+    fn dimensions(&self) -> [u32; 2]
+    {
+        self.dimensions
     }
 }
 
@@ -464,9 +467,9 @@ impl Typewriter
         self.wrap = wrap
     }
     
-    pub fn resolution(&self) -> [u32; 2]
+    pub fn dimensions(&self) -> [u32; 2]
     {
-        self.paragraph.resolution()
+        self.paragraph.dimensions()
     }
 
     pub fn change_font_size(&mut self, size: u16) -> ()

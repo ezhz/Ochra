@@ -70,7 +70,7 @@ impl PictureLoader
 
 // ----------------------------------------------------------------------------------------------------
 
-pub struct App 
+pub struct App
 {
     display: display::Display,
     state: Option<PictureState>,
@@ -79,19 +79,23 @@ pub struct App
 
 impl App
 {
-    pub fn new<P: AsRef<Path>>(path: P) -> (Self, winit::event_loop::EventLoop<()>)
+    pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result
+    <(
+        Self, 
+        winit::event_loop::EventLoop<()>
+    )>
     {
-        let (display, event_loop) = display::Display::new();
-        let state = PictureState::Init(path.as_ref().to_owned());
-        (
+        let (display, event_loop) = display::Display::new()?;
+        Ok
+        ((
             Self
             {
                 display,
-                state: Some(state),
+                state: Some(PictureState::Init(path.as_ref().to_owned())),
                 loader: PictureLoader::new()
             }, 
             event_loop
-        )
+        ))
     }
     
     pub fn change_path<P: AsRef<Path>>(&mut self, path: P) -> ()
@@ -99,27 +103,29 @@ impl App
         self.state = Some(PictureState::Init(path.as_ref().to_owned()))
     }
 
-    fn show_loader(&mut self, entries: LiveNavigator) -> PictureState
+    #[must_use]
+    fn show_blank(&mut self, entries: LiveNavigator) -> anyhow::Result<PictureState>
     {
         match picture::read_dimensions(entries.selected())
         {
             Ok((width, height)) =>
             {
-                self.display.show_loader(winit::dpi::PhysicalSize{width, height});
+                self.display.show_blank(winit::dpi::PhysicalSize{width, height})?;
                 self.loader.send_to_thread_path
                     .send(entries.selected().to_owned())
                     .unwrap();
-                PictureState::Loading(entries)
+                Ok(PictureState::Loading(entries))
             }
             Err(error) =>
             {
-                self.display.show_x(&error);
-                PictureState::Idle(entries, Instant::now())
+                self.display.show_error(&error)?;
+                Ok(PictureState::Idle(entries, Instant::now()))
             }
         }
     }
 
-    pub fn navigate(&mut self, direction: i64) -> ()
+    #[must_use]
+    pub fn navigate(&mut self, direction: i64) -> anyhow::Result<()>
     {
         self.state = match self.state.take().unwrap()
         {
@@ -128,25 +134,27 @@ impl App
             | PictureState::Loading(mut entries, ..) =>
             {
                 entries.navigate(direction);
-                Some(self.show_loader(entries))
+                Some(self.show_blank(entries)?)
             }
             state @ _ => Some(state)
-        }
+        };
+        Ok(())
     }
 
-    pub fn refresh(&mut self) -> ()
+    #[must_use]
+    pub fn refresh(&mut self) -> anyhow::Result<()>
     {
         let state = match self.state.take().unwrap()
         {
             PictureState::Init(path) =>
             {
-                self.display.visible(true);
+                self.display.set_visible(true);
                 match LiveNavigator::from_path(&path, &picture::extensions())
                 {
-                    Ok(entries) => self.show_loader(entries),
+                    Ok(entries) => self.show_blank(entries)?,
                     Err(error) => 
                     {
-                        self.display.show_x(&error);
+                        self.display.show_error(&error)?;
                         PictureState::Disabled
                     }
                 }
@@ -165,7 +173,7 @@ impl App
                                 Ok(picture) => PictureState::Drawing(entries, picture),
                                 Err(error) =>
                                 {
-                                    self.display.show_x(&error);
+                                    self.display.show_error(&error)?;
                                     PictureState::Idle(entries, Instant::now())
                                 }
                             };
@@ -181,7 +189,7 @@ impl App
                     Err(TryRecvError::Empty) => PictureState::Loading(entries),
                     Err(error @ TryRecvError::Disconnected) =>
                     {
-                        self.display.show_x(&error);
+                        self.display.show_error(&error)?;
                         PictureState::Disabled
                     }
                 }
@@ -192,8 +200,8 @@ impl App
                 {
                     match still.apply_icc_transform(self.display.get_icc())
                     {
-                        Ok(()) => self.display.show_picture(&still),
-                        Err(error) => self.display.show_x(&error)
+                        Ok(()) => self.display.show_picture(&still)?,
+                        Err(error) => self.display.show_error(&error)?
                     }
                     PictureState::Idle(entries, Instant::now())
                 }                
@@ -205,10 +213,10 @@ impl App
                         {
                             Ok(mut still) => match still.apply_icc_transform(self.display.get_icc())
                             {
-                                Ok(()) => self.display.show_picture(&still),
-                                Err(error) => self.display.show_x(&error)
+                                Ok(()) => self.display.show_picture(&still)?,
+                                Err(error) => self.display.show_error(&error)?
                             }
-                            Err(error) => self.display.show_x(&error)
+                            Err(error) => self.display.show_error(&error)?
                         }
                     }
                     PictureState::Drawing(entries, picture)
@@ -221,31 +229,33 @@ impl App
                     Ok((entries, dirty)) => match dirty
                     {
                         false => PictureState::Idle(entries, Instant::now()),
-                        true => self.show_loader(entries)
+                        true => self.show_blank(entries)?
                     }
                     Err(error) =>
                     {
-                        self.display.show_x(&error);
+                        self.display.show_error(&error)?;
                         PictureState::Disabled
                     }
                 }
             }
             state @ _  => state
         };
-        self.state = Some(state)
-    }
-    
-    pub fn on_scale_factor_changed(&mut self) -> ()
-    {
-        self.display.on_scale_factor_changed()
+        Ok(self.state = Some(state))
     }
 
-    pub fn drag_window(&self) -> ()
+    pub fn set_scale_factor(&mut self, scale_factor: f64) -> ()
+    {
+        self.display.set_scale_factor(scale_factor)
+    }
+
+    #[must_use]
+    pub fn drag_window(&self) -> anyhow::Result<()>
     {
         self.display.drag()
     }
     
-    pub fn draw(&mut self) -> ()
+    #[must_use]
+    pub fn draw(&mut self) -> anyhow::Result<()>
     {
         self.display.draw()
     }

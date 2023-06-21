@@ -1,81 +1,48 @@
 
-use std::path::PathBuf;
-use super::{ogl::*, painters::*, picture, vector::*, quad::*};
-use winit::{window::*, event_loop::*, dpi::*};
-use raw_gl_context::*;
-use raw_window_handle::*;
-
-#[cfg(target_os = "windows")]
-use windows::
+use 
 {
-    core::PSTR, 
-    Win32::
+    std::
     {
-        self,
-        UI::ColorSystem::GetICMProfileA,
-        Foundation::
-        {
-            GetLastError,
-            WIN32_ERROR
-        }
-    }
+        path::PathBuf,
+        result::Result
+    },
+    super::
+    {
+        ogl::*,
+        painters::*,
+        picture
+    },
+    winit::{window::*, event_loop::*, dpi::*},
+    raw_gl_context::*,
+    raw_window_handle::*,
+    anyhow::{Context, bail}
 };
+
+// ----------------------------------------------------------------------------------------------------
 
 const FONT: &[u8] = include_bytes!("../assets/font.ttf");
 
 // ----------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
-pub enum QuerryMonitorICCError
+struct ErrorPainter
 {
-    UnsupportedOSError,
-    Win32Error(WIN32_ERROR),
-    UnknownWindowsError,
-    FromUtf8Error(std::string::FromUtf8Error)
-}
-
-// ----------------------------------------------------------------------------------------------------
-
-impl From<Vector2> for [u32; 2]
-{
-    fn from(vector: Vector2) -> Self
-    {
-        [
-            vector.0[0].round() as _, 
-            vector.0[1].round() as _
-        ]
-    }
-}
-
-impl From<Vector2> for [i32; 2]
-{
-    fn from(vector: Vector2) -> Self
-    {
-        [
-            vector.0[0].round() as _, 
-            vector.0[1].round() as _
-        ]
-    }
-}
-
-// ----------------------------------------------------------------------------------------------------
-
-struct ErrorDisplay
-{
-    size: LogicalSize<f32>,
     filler: Filler,
     typewriter: Typewriter,
-    window: Quad,
+    size: [u32; 2]
 }
 
-impl ErrorDisplay
+impl ErrorPainter
 {
+    const SIZE: LogicalSize<f32> = LogicalSize
+    {
+        width: 500.0,
+        height: 500.0
+    };
+
     fn new(pointers: &FunctionPointers) -> Self
     {
-        let window = Quad::new([0.0, 0.0], [500.0, 500.0]);
         Self
         {
-            size: LogicalSize::<f32>::from(window.size().0),
             filler: Filler::new(pointers),
             typewriter: Typewriter::new
             (
@@ -83,7 +50,11 @@ impl ErrorDisplay
                 FONT,
                 16
             ),
-            window
+            size:
+            [
+                Self::SIZE.width.round() as _,
+                Self::SIZE.height.round() as _
+            ]
         }
     }
 
@@ -92,28 +63,38 @@ impl ErrorDisplay
         self.typewriter.layout_text(message, 60)
     }
 
-    fn set_font_size(&mut self, size: u16) -> ()
+    fn get_size(&self) -> PhysicalSize<u32>
     {
-        self.typewriter.change_font_size(size)
+        self.size.into()
     }
 
-    fn draw(&mut self, scale: f64) -> ()
+    fn set_scale_factor(&mut self, scale_factor: f32) -> ()
     {
-        let mut window = self.window;
-        window.scale(Vector([scale, scale]));
-        self.filler.fill
+        self.typewriter.change_font_size
         (
-            [1.0; 4],
-            window.min().into(), 
-            window.size().into()
+            (16.0 * scale_factor).round() as _
         );
-        let [width, height] = self.typewriter.resolution();
-        let Vector([x, y]) = window.mid();
+        self.size =
+        [
+            (Self::SIZE.width * scale_factor).round() as _,
+            (Self::SIZE.height * scale_factor).round() as _
+        ]
+    }
+
+    fn draw(&mut self) -> ()
+    {
+        self.filler.fill([1.0; 4], [0; 2], self.size);
         self.typewriter.draw
         (
             [
-                (x - width as f64 / 2.0) as _,
-                (y - height as f64 / 2.0) as _
+                (
+                    self.size[0] as f32 * 0.5 -
+                    self.typewriter.dimensions()[0] as f32 * 0.5
+                ).round() as _,
+                (
+                    self.size[1] as f32 * 0.5 -
+                    self.typewriter.dimensions()[1] as f32 * 0.5
+                ).round() as _
             ]
         )
     }
@@ -121,43 +102,79 @@ impl ErrorDisplay
 
 // ----------------------------------------------------------------------------------------------------
 
-struct Loader(Filler);
+struct BlankPainter
+{
+    filler: Filler,
+    size: [u32; 2]
+}
 
-impl Loader
+impl BlankPainter
 {
     fn new(pointers: &FunctionPointers) -> Self
     {
-        Self(Filler::new(pointers))
+        Self
+        {
+            filler: Filler::new(pointers),
+            size: Default::default()
+        }
     }
 
-    fn draw(&mut self, size: PhysicalSize<u32>) -> ()
+    fn get_size(&self) -> PhysicalSize<u32>
     {
-        self.0.fill
+        self.size.into()
+    }
+
+    fn set_size(&mut self, size: PhysicalSize<u32>) -> ()
+    {
+        self.size = [size.width, size.height]
+    }
+
+    fn draw(&mut self) -> ()
+    {
+        self.filler.fill
         (
             [0.0, 0.0, 0.0, 1.0], 
             [0, 0], 
-            [size.width, size.height]
+            self.size
         )
     }
 }
 
 // ----------------------------------------------------------------------------------------------------
 
-struct PictureDisplay(Blitter);
+struct PicturePainter
+{
+    blitter: Blitter,
+    size: [u32; 2]
+}
 
-impl PictureDisplay
+impl PicturePainter
 {
     fn new(pointers: &FunctionPointers) -> Self
     {
-        Self(Blitter::new(pointers))
+        Self
+        {
+            blitter: Blitter::new(pointers),
+            size: Default::default()
+        }
     }
     
-    fn setup(&mut self, still: &picture::StillPicture) -> ()
+    fn get_size(&self) -> PhysicalSize<u32>
+    {
+        self.size.into()
+    }
+
+    fn set_size(&mut self, size: PhysicalSize<u32>) -> ()
+    {
+        self.size = [size.width, size.height]
+    }
+
+    fn set_picture(&mut self, still: &picture::StillPicture) -> ()
     {
         match &still.pixel_data
         {
             picture::PixelData::EightBit(data)
-                => self.0.upload_texture
+                => self.blitter.upload_texture
             (
                 Image::<u8>
                 {
@@ -170,7 +187,7 @@ impl PictureDisplay
                 still.gamma
             ),
             picture::PixelData::SixteenBit(data)
-                => self.0.upload_texture
+                => self.blitter.upload_texture
             (
                 Image::<u16>
                 {
@@ -183,7 +200,7 @@ impl PictureDisplay
                 still.gamma
             ),
             picture::PixelData::ThirtyTwoBit(data)
-                => self.0.upload_texture
+                => self.blitter.upload_texture
             (
                 Image::<f32>
                 {
@@ -197,10 +214,10 @@ impl PictureDisplay
             )
         }
     }
-    
-    fn draw(&mut self, size: PhysicalSize<u32>) -> ()
+
+    fn draw(&mut self) -> ()
     {
-        self.0.blit([size.width, size.height])
+        self.blitter.blit(self.size)
     }
 }
 
@@ -208,8 +225,7 @@ impl PictureDisplay
 
 enum RenderMode
 {
-    Uninitialized,
-    Loader,
+    Blank,
     Picture,
     Error
 }
@@ -218,9 +234,9 @@ enum RenderMode
 
 struct Renderer
 {
-    loader: Loader,
-    picture: PictureDisplay,
-    error: ErrorDisplay,
+    blank: BlankPainter,
+    picture: PicturePainter,
+    error: ErrorPainter,
     mode: RenderMode
 }
 
@@ -230,46 +246,61 @@ impl Renderer
     {
         Self
         {
-            loader: Loader::new(pointers),
-            picture: PictureDisplay::new(pointers),
-            error: ErrorDisplay::new(pointers),
-            mode: RenderMode::Uninitialized
+            blank: BlankPainter::new(pointers),
+            picture: PicturePainter::new(pointers),
+            error: ErrorPainter::new(pointers),
+            mode: RenderMode::Blank
         }
     }
     
-    fn use_loader(&mut self) -> ()
+    fn use_blank(&mut self, size: PhysicalSize<u32>) -> ()
     {
-        self.mode = RenderMode::Loader
+        self.mode = RenderMode::Blank;
+        self.blank.set_size(size)
     }
 
-    fn prepare_error<E>(&mut self, error: &E) -> LogicalSize<f32>
+    fn use_picture
+    (
+        &mut self,
+        still: &picture::StillPicture,
+        size: PhysicalSize<u32>
+    ) -> ()
+    {
+        self.mode = RenderMode::Picture;
+        self.picture.set_picture(still);
+        self.picture.set_size(size)
+    }
+
+    fn use_error<E>(&mut self, error: &E) -> PhysicalSize<u32>
     where E: std::error::Error
     {
         self.mode = RenderMode::Error;
         self.error.set_message(&error.to_string());
-        self.error.size
+        self.error.get_size()
     }
 
-    fn prepare_picture(&mut self, still: &picture::StillPicture) -> ()
+    fn get_size(&self) -> PhysicalSize<u32>
     {
-        self.mode = RenderMode::Picture;
-        self.picture.setup(still)
-    }
-
-    fn draw
-    (
-        &mut self, 
-        size: PhysicalSize<u32>, 
-        scale_factor: f64
-    ) -> ()
-    {
-        use RenderMode::*;
         match &self.mode
         {
-            Loader => self.loader.draw(size),
-            Picture => self.picture.draw(size),
-            Error => self.error.draw(scale_factor),
-            _ => {}
+            RenderMode::Blank => self.blank.get_size(),
+            RenderMode::Picture => self.picture.get_size(),
+            RenderMode::Error => self.error.get_size()
+        }
+    }
+
+    fn set_scale_factor(&mut self, scale_factor: f64) -> ()
+    {
+        self.error.set_scale_factor(scale_factor as _)
+    }
+
+    fn draw(&mut self) -> ()
+    {
+        match &self.mode
+        {
+            RenderMode::Blank => self.blank.draw(),
+            RenderMode::Picture => self.picture.draw(),
+            RenderMode::Error => self.error.draw()
         }
     }
 }
@@ -285,7 +316,7 @@ struct GLWindow
 
 impl GLWindow
 {
-    fn new() -> (Self, EventLoop<()>)
+    fn new() -> anyhow::Result<(Self, EventLoop<()>)>
     {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
@@ -297,22 +328,24 @@ impl GLWindow
             .with_decorations(false)
             .with_resizable(false)
             .build(&event_loop)
-            .unwrap();
+            .context("Could not create openGL window")?;
         let context = unsafe 
         {
             let context = GlContext::create
             (
                 &window, 
                 Default::default()
-            ).unwrap();
+            )?;
             context.make_current();
             context
         };
-        let pointers = FunctionPointers
-            ::load(|s| context.get_proc_address(s));
+        let pointers = FunctionPointers::load
+        (
+            |s| context.get_proc_address(s)
+        );
         unsafe
         {
-            pointers.ClearColor(0.0, 0.0, 0.0, 1.0);
+            pointers.ClearColor(0.0, 0.0, 0.0, 0.0);
             pointers.Enable(BLEND);
             pointers.BlendFuncSeparate
             (
@@ -324,115 +357,131 @@ impl GLWindow
             pointers.PixelStorei(UNPACK_ALIGNMENT, 1);
             pointers.PixelStorei(PACK_ALIGNMENT, 1);
         }
-        let mut this = Self{window, context, pointers};
-        let size = this.screen_size();
-        this.set_size(size);
-        this.set_position(PhysicalPosition::new(0, 0));
-        (this, event_loop)
+        Ok
+        ((
+            Self{window, context, pointers},
+            event_loop
+        ))
     }
     
-    fn querry_monitor_icc(&self) -> std::result::Result
-    <
-        PathBuf,
-        QuerryMonitorICCError
-    >
+    fn query_monitor_icc(&self) -> anyhow::Result<PathBuf>
     {
-        if let RawWindowHandle::Win32(handle) = self.window.raw_window_handle()
+        if cfg!(target_os = "windows")
         {
-            if cfg!(target_os = "windows")
+            if let RawWindowHandle::Win32(wh) = self.window.raw_window_handle()
             {
-                let hwnd = Win32::Foundation::HWND(handle.hwnd as _);
-                let mut buffer_size: u32 = 0;
+                let wh = windows::Win32::Foundation::HWND(wh.hwnd as _);
+                let mut buffer_len: u32 = 0;
                 return unsafe
                 {
-                    let hdc = Win32::Graphics::Gdi::GetDC(hwnd);
-                    match GetICMProfileA
+                    let hdc = windows::Win32::Graphics::Gdi::GetDC(wh);
+                    match windows::Win32::UI::ColorSystem::GetICMProfileA
                     (
                         hdc,
-                        &mut buffer_size as *mut u32,
-                        PSTR::null()
+                        &mut buffer_len as *mut u32,
+                        windows::core::PSTR::null()
                     ).as_bool()
                     {
-                        true => Err(QuerryMonitorICCError::UnknownWindowsError),
-                        false => match GetLastError()
+                        true => bail!("Could not query monitor ICC. Unknown error."),
+                        false => match windows::Win32::Foundation::GetLastError()
                         {
-                            WIN32_ERROR(122) => // ERROR_INSUFFICIENT_BUFFER
+                            windows::Win32::Foundation::WIN32_ERROR(122) => // ERROR_INSUFFICIENT_BUFFER
                             {
-                                let mut filename: Vec<u8> = vec![0; buffer_size as _];
-                                let pszfilename = PSTR(filename.as_mut_ptr());
-                                match GetICMProfileA
+                                let mut filename: Vec<u8> = vec![0; buffer_len as _];
+                                let pszfilename = windows::core::PSTR(filename.as_mut_ptr());
+                                match windows::Win32::UI::ColorSystem::GetICMProfileA
                                 (
                                     hdc,
-                                    &mut buffer_size as *mut u32,
+                                    &mut buffer_len as *mut _,
                                     pszfilename
                                 ).as_bool()
                                 {
-                                    true => match pszfilename.to_string()
-                                    {
-                                        Ok(path) => Ok(PathBuf::from(path)),
-                                        Err(error) => Err(QuerryMonitorICCError::FromUtf8Error(error))
-                                    }
-                                    false => Err(QuerryMonitorICCError::Win32Error(GetLastError()))
+                                    true => pszfilename.to_string()
+                                        .context("Could not query monitor ICC")
+                                        .map(PathBuf::from),
+                                    false => bail!
+                                    (
+                                        "Could not query monitor ICC. {:?}",
+                                        windows::Win32::Foundation::GetLastError()
+                                    )
                                 }
                             }
-                            error @ _ => Err(QuerryMonitorICCError::Win32Error(error))
+                            error @ _ => bail!("Could not query monitor ICC. {error:?}")
                         }
                     }
                 }
-            }
-        };
-        Err(QuerryMonitorICCError::UnsupportedOSError)
+            };
+            bail!("Could not query monitor ICC. Could not get window handle.")
+        }
+        bail!("Could not query monitor ICC. Unsupported OS.")
     }
 
-    fn scale_factor(&self) -> f64
+    fn get_scale_factor(&self) -> f64
     {
          self.window.scale_factor()
     }
     
-    fn size(&self) -> PhysicalSize<u32>
+    fn get_size(&self) -> PhysicalSize<u32>
     {
         self.window.outer_size()
     }
-    
-    fn position(&self) -> PhysicalPosition<i32>
+
+    // implicit winit::event::Event::RedrawRequested
+    fn set_size<S: Into<Size>>(&mut self, size: S) -> ()
     {
-        self.window
-            .outer_position()
-            .unwrap()
+        self.window.set_inner_size(size)
+    }
+
+    fn get_position(&self) -> Result
+    <
+        PhysicalPosition<i32>,
+        winit::error::NotSupportedError
+    >
+    {
+        self.window.outer_position()
     }
     
-    fn screen_size(&self) -> PhysicalSize<u32>
+    fn set_position<P: Into<Position>>(&self, position: P) -> ()
     {
-         self.window
-            .current_monitor()
-            .unwrap()
-            .size()
+        self.window.set_outer_position(position)
+    }
+
+    fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>
+    {
+         self.window.current_monitor()
+            .context("Could not detect current monitor")
+            .map(|m| m.size())
     }
     
-    fn visible(&self, visible: bool) -> ()
+    fn set_visible(&self, visible: bool) -> ()
     {
         self.window.set_visible(visible)
     }
 
-    fn drag(&self) -> ()
+    fn get_center(&self) -> Result
+    <
+        PhysicalPosition<i32>,
+        winit::error::NotSupportedError
+    >
     {
-        self.window.drag_window().unwrap()
-    }
-    
-    fn get_center(&self) -> PhysicalPosition<i32>
-    {
-        let mut position = self.position();
-        let size = self.size();
+        let mut position = self.get_position()?;
+        let size = self.get_size();
         position.x += (size.width as f32 * 0.5).round() as i32;
         position.y += (size.height as f32 * 0.5).round() as i32;
-        position
+        Ok(position)
     }
 
-    fn resize_overflow_to_screen(&mut self, scale: f32) -> ()
+    #[must_use]
+    fn drag(&self) -> anyhow::Result<()>
     {
-        let screen = self.screen_size();
+        self.window.drag_window().context("Could not drag window")
+    }
+
+    fn fit_overflow_to_screen(&mut self, scale: f32) -> anyhow::Result<()>
+    {
+        let screen = self.get_screen_size()?;
         let screen = (screen.width as f32, screen.height as f32);
-        let window = self.size();
+        let window = self.get_size();
         let window = (window.width as f32, window.height as f32);
         let mut fitted = window;
         if window.0 > screen.0 * scale || window.1 > screen.1 * scale
@@ -446,17 +495,7 @@ impl GLWindow
             };
             fitted = (fitted.0 * scale, fitted.1 * scale);    
         }
-        self.set_size(PhysicalSize::<f32>::from(fitted))
-    }
-    
-    fn set_position<P: Into<Position>>(&self, position: P) -> ()
-    {
-        self.window.set_outer_position(position)
-    }
-
-    fn set_size<S: Into<Size>>(&mut self, size: S) -> ()
-    {
-        self.window.set_inner_size(size) // implicit `RedrawRequested`
+        Ok(self.set_size(PhysicalSize::<f32>::from(fitted)))
     }
 }
 
@@ -466,17 +505,17 @@ pub struct Display
 {
     window: GLWindow,
     renderer: Renderer,
-    size: PhysicalSize<u32>,
     icc: lcms2::Profile
 }
 
 impl Display
 {
-    pub fn new() -> (Self, EventLoop<()>)
+    pub fn new() -> anyhow::Result<(Self, EventLoop<()>)>
     {
-        let (window, event_loop) = GLWindow::new();
+        let (window, event_loop) = GLWindow::new()?;
         let mut renderer = Renderer::new(&window.pointers);
-        let icc = match window.querry_monitor_icc()
+        renderer.set_scale_factor(window.get_scale_factor());
+        let icc = match window.query_monitor_icc()
         {
             Ok(path) => match lcms2::Profile::new_file(path)
             {
@@ -493,16 +532,16 @@ impl Display
                 lcms2::Profile::new_srgb()
             }
         };
-        let font_size = 16.0 * window.scale_factor();
-        renderer.error.set_font_size(font_size as _);
-        let this = Self
-        {
-            window, 
-            renderer,
-            size: PhysicalSize::new(0, 0).into(),
-            icc
-        };
-        (this, event_loop)
+        Ok
+        ((
+            Self
+            {
+                window, 
+                renderer,
+                icc
+            },
+            event_loop
+        ))
     }
     
     pub fn get_icc(&self) -> &lcms2::Profile
@@ -510,74 +549,70 @@ impl Display
         &self.icc
     }
 
-    pub fn visible(&self, visible: bool) -> ()
+    pub fn set_visible(&self, visible: bool) -> ()
     {
-        self.window.visible(visible)
+        self.window.set_visible(visible)
     }
     
-    pub fn drag(&self) -> ()
+    fn get_size(&self) -> PhysicalSize<u32>
     {
-        self.window.drag()
+        self.window.get_size()
     }
 
-    fn request_draw<S: Into<Size>>(&mut self, size: S) -> ()
+    fn set_size(&mut self, size: PhysicalSize<u32>, fit: bool) -> anyhow::Result<()>
     {
-        let previous_center = self.window.get_center();
+        let previous_center = self.window.get_center()?;
         self.window.set_size(size);
-        self.window.resize_overflow_to_screen(0.8);
-        self.size = self.window.size().into();
-        let mut position = self.window.position();
-        let new_center = self.window.get_center();
+        if fit
+        {
+            self.window.fit_overflow_to_screen(0.8)?
+        }
+        let mut position = self.window.get_position()?;
+        let new_center = self.window.get_center()?;
         position.x -= new_center.x - previous_center.x;
         position.y -= new_center.y - previous_center.y;
-        self.window.set_position(position)
+        Ok(self.window.set_position(position))
     }
 
-    pub fn show_loader(&mut self, size: PhysicalSize<u32>) -> ()
+    pub fn set_scale_factor(&mut self, scale_factor: f64) -> ()
     {
-        self.renderer.use_loader();
-        self.request_draw(size)
+        self.renderer.set_scale_factor(scale_factor)
     }
 
-    pub fn show_picture(&mut self, still: &picture::StillPicture) -> ()
+    pub fn show_blank(&mut self, size: PhysicalSize<u32>) -> anyhow::Result<()>
     {
-        self.renderer.prepare_picture(still);
-        let size = PhysicalSize::<u32>::from(still.resolution);
-        self.request_draw(size)
+        self.set_size(size, true)?;
+        self.renderer.use_blank(self.get_size());
+        Ok(())
+    }
+
+    pub fn show_picture(&mut self, still: &picture::StillPicture) -> anyhow::Result<()>
+    {
+        self.set_size(still.resolution.into(), true)?;
+        self.renderer.use_picture(still, self.get_size());
+        Ok(())
     }
     
-    pub fn show_x<E>(&mut self, error: &E) -> ()
+    pub fn show_error<E>(&mut self, error: &E) -> anyhow::Result<()>
     where
         E: std::error::Error
     {
         eprintln!("{:?}", error);
-        let size = self.renderer.prepare_error(error);
-        self.request_draw(size)
+        let size = self.renderer.use_error(error);
+        self.set_size(size, false)
     }
 
-    pub fn on_scale_factor_changed(&mut self) -> ()
+    pub fn drag(&self) -> anyhow::Result<()>
     {
-        let font_size = 16.0 * self.window.scale_factor();
-        self.renderer.error.set_font_size(font_size as _);
-        if let RenderMode::Error = self.renderer.mode
-        {
-            let size = self.renderer.error.size;
-            let scale_factor = self.window.scale_factor();
-            self.size = PhysicalSize
-            {
-                width: (size.width as f64 * scale_factor).round() as _,
-                height: (size.height as f64 * scale_factor).round() as _
-            };
-        }
-        self.request_draw(self.size)
+        self.window.drag()
     }
 
-    pub fn draw(&mut self) -> ()
+    pub fn draw(&mut self) -> anyhow::Result<()>
     {
-        self.window.set_size(self.size);
-        let scale_factor = self.window.scale_factor();
+        self.set_size(self.renderer.get_size(), false)?;
         unsafe{self.window.pointers.Clear(COLOR_BUFFER_BIT)}
-        self.renderer.draw(self.size, scale_factor);
-        self.window.context.swap_buffers()
+        self.renderer.draw();
+        self.window.context.swap_buffers();
+        Ok(())
     }
 }
