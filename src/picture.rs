@@ -6,38 +6,11 @@ use image::{ImageFormat::*, codecs::*, GenericImageView, DynamicImage::*, ImageD
 // ----------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub enum ICCError
-{
-    LCMS2Error(lcms2::Error),
-    UnsupportedBitDepth
-}
-
-impl std::error::Error for ICCError {}
-
-impl fmt::Display for ICCError
-{
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result
-    {
-        match self 
-        {
-            Self::LCMS2Error(error) => write!(formatter, "{}", error),
-            Self::UnsupportedBitDepth => write!
-            (
-                formatter, 
-                "Unsupported bit depth for icc transformation"
-            )
-        }
-    }
-}
-
-// ----------------------------------------------------------------------------------------------------
-
-#[derive(Debug)]
 pub enum PictureError
 {
     IO(std::io::Error),
     ImageError(image::error::ImageError),
-    ICCError(ICCError),
+    ICCError(lcms2::Error),
     UnsupportedChannelCount(u8),
     UnsupportedImageFormat,
     UnsupportedPixelFormat,
@@ -71,7 +44,7 @@ impl From<lcms2::Error> for PictureError
 {
     fn from(error: lcms2::Error) -> Self
     {
-        Self::ICCError(ICCError::LCMS2Error(error))
+        Self::ICCError(error)
     }
 }
 
@@ -126,8 +99,7 @@ impl ChannelInterpretation
 pub enum PixelData
 {
     EightBit(Vec<u8>),
-    SixteenBit(Vec<u16>),
-    ThirtyTwoBit(Vec<f32>)
+    SixteenBit(Vec<u16>)
 }
 
 // ----------------------------------------------------------------------------------------------------
@@ -178,8 +150,8 @@ impl TryFrom<(lcms2::Profile, image::DynamicImage)> for StillPicture
             ImageLumaA16(buffer) => SixteenBit(buffer.into_raw()),
             ImageRgb16(buffer) => SixteenBit(buffer.into_raw()),
             ImageRgba16(buffer) => SixteenBit(buffer.into_raw()),
-            ImageRgb32F(buffer) => ThirtyTwoBit(buffer.into_raw()),
-            ImageRgba32F(buffer) => ThirtyTwoBit(buffer.into_raw()),
+            ImageRgb32F(_) => SixteenBit(dynamic_image.into_rgb16().into_raw()),
+            ImageRgba32F(_) => SixteenBit(dynamic_image.into_rgba16().into_raw()),
             _ => return Err(PictureError::UnsupportedPixelFormat)
         };
         let this = Self
@@ -291,7 +263,6 @@ impl StillPicture
                     }
                 }
             }
-            _ => Err(PictureError::ICCError(ICCError::UnsupportedBitDepth))
         }
     }
 

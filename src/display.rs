@@ -198,19 +198,6 @@ impl PicturePainter
                 still.channel_interpretation
                     .swizzle_for_rgba(),
                 still.gamma
-            ),
-            picture::PixelData::ThirtyTwoBit(data)
-                => self.blitter.upload_texture
-            (
-                Image::<f32>
-                {
-                    data: Some(data), 
-                    resolution: still.resolution, 
-                    channel_count: still.channel_count
-                },
-                still.channel_interpretation
-                    .swizzle_for_rgba(),
-                still.gamma
             )
         }
     }
