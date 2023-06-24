@@ -169,7 +169,7 @@ impl TryFrom<(lcms2::Profile, image::DynamicImage)> for StillPicture
 
 impl StillPicture
 {
-    pub fn apply_icc_transform(&mut self, target: &lcms2::Profile) -> PictureResult<()>
+    pub fn transform_to_icc(&mut self, target: &lcms2::Profile) -> PictureResult<()>
     {
         use lcms2::PixelFormat;
         let intent = lcms2::Intent::Perceptual;

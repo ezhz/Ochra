@@ -4,6 +4,20 @@ use std::str::*;
 
 // ----------------------------------------------------------------------------------------------------
 
+pub type GLPosition = [i32; 2];
+pub type GLSize = [u32; 2];
+
+// ----------------------------------------------------------------------------------------------------
+
+#[derive(Default, Clone)]
+pub struct GLViewport
+{
+    pub origin: GLPosition,
+    pub size: GLSize 
+}
+
+// ----------------------------------------------------------------------------------------------------
+
 pub struct Canvas
 {
     pointers: FunctionPointers,
@@ -90,9 +104,8 @@ impl Canvas
     
     pub fn draw
     (
-        &self, 
-        origin: [i32; 2],
-        resolution: [u32; 2]
+        &self,
+        GLViewport{origin, size}: &GLViewport
     ) -> ()
     {
         unsafe
@@ -101,8 +114,8 @@ impl Canvas
             (
                 origin[0],
                 origin[1],
-                resolution[0] as _,
-                resolution[1] as _
+                size[0] as _,
+                size[1] as _
             );
             self.pointers.UseProgram(*self.program);
             self.pointers.BindVertexArray(*self.vao);
@@ -148,12 +161,11 @@ impl Filler
     (
         &mut self,
         color: [f32; 4],
-        origin: [i32; 2],
-        resolution: [u32; 2]
+        viewport: &GLViewport
     ) -> ()
     {
         self.canvas.set_uniform("input_color", color);
-        self.canvas.draw(origin, resolution)
+        self.canvas.draw(viewport)
     }
 }
 
@@ -233,14 +245,14 @@ impl Blitter
         );
     }
 
-    pub fn blit(&self, resolution: [u32; 2]) -> ()
+    pub fn blit(&self, viewport: &GLViewport) -> ()
     {
         unsafe
         {
             self.pointers.ActiveTexture(TEXTURE0);
             self.pointers.BindTexture(TEXTURE_2D, *self.texture);
         }
-        self.canvas.draw([0, 0], resolution)
+        self.canvas.draw(viewport)
     }
 }
 
@@ -248,8 +260,8 @@ impl Blitter
 
 struct Glyph
 {
-    origin: (i32, i32),
-    resolution: (usize, usize),
+    origin: [i32; 2],
+    resolution: [usize; 2],
     pixels: Vec<u8>
 }
 
@@ -290,8 +302,8 @@ impl FontRasterizer
             .rasterize_indexed(glyph_index, self.size as _);
         Glyph
         {
-            origin: (metrics.xmin, metrics.ymin),
-            resolution: (metrics.width, metrics.height),
+            origin: [metrics.xmin, metrics.ymin],
+            resolution: [metrics.width, metrics.height],
             pixels: bitmap
         }
     }
@@ -340,7 +352,7 @@ struct Paragraph
     rasterizer: FontRasterizer,
     shaper: LineShaper,
     glyphs: Vec<Glyph>,
-    dimensions: [u32; 2]
+    dimensions: GLSize
 }
 
 impl Paragraph
@@ -369,11 +381,11 @@ impl Paragraph
             for (advance, id) in self.shaper.shape_line(&line)
             {
                 let glyph = self.rasterizer.rasterize_glyph(id as _);
-                let x = glyph.origin.0 + total_advance;
-                let y = glyph.origin.1 + top -
+                let x = glyph.origin[0] + total_advance;
+                let y = glyph.origin[1] + top -
                     self.rasterizer.leading as i32
                     * line_index as i32;
-                glyphs.push(Glyph{origin: (x, y), ..glyph});
+                glyphs.push(Glyph{origin:[x, y], ..glyph});
                 total_advance += advance * self.rasterizer.size as i32 /
                     self.rasterizer.units_per_em as i32; // **
             }
@@ -382,13 +394,13 @@ impl Paragraph
         let mut max = [0, 0];
         for Glyph{origin, resolution, ..} in &self.glyphs
         {
-            max[0] = max[0].max((origin.0 + resolution.0 as i32) as u32);
-            max[1] = max[1].max((origin.1 + resolution.1 as i32) as u32);
+            max[0] = max[0].max((origin[0] + resolution[0] as i32) as u32);
+            max[1] = max[1].max((origin[1] + resolution[1] as i32) as u32);
         }        
         self.dimensions = max
     }
 
-    fn dimensions(&self) -> [u32; 2]
+    fn dimensions(&self) -> GLSize
     {
         self.dimensions
     }
@@ -467,7 +479,7 @@ impl Typewriter
         self.wrap = wrap
     }
     
-    pub fn dimensions(&self) -> [u32; 2]
+    pub fn dimensions(&self) -> GLSize
     {
         self.paragraph.dimensions()
     }
@@ -479,7 +491,7 @@ impl Typewriter
         self.layout_text(&text, self.wrap)
     } 
 
-    pub fn draw(&mut self, origin: [i32; 2]) -> ()
+    pub fn draw(&mut self, origin: GLPosition) -> ()
     {        
         unsafe
         {
@@ -489,10 +501,10 @@ impl Typewriter
         for Glyph{origin: glyph_origin, resolution, pixels}
             in &self.paragraph.glyphs
         {
-            let resolution = 
+            let size = 
             [
-                resolution.0 as u32,
-                resolution.1 as u32
+                resolution[0] as u32,
+                resolution[1] as u32
             ];
             fill_texture
             (
@@ -502,17 +514,21 @@ impl Typewriter
                 Image
                 {
                     data: Some(&pixels),
-                    resolution,
+                    resolution: size,
                     channel_count: ChannelCount::One
                 }
             );
             self.canvas.draw
             (
-                [
-                    origin[0] + glyph_origin.0, 
-                    origin[1] + glyph_origin.1
-                ],
-                resolution
+                &GLViewport
+                {
+                    origin:
+                    [
+                        origin[0] + glyph_origin[0], 
+                        origin[1] + glyph_origin[1]
+                    ],
+                    size
+                }
             )
         }
     }
