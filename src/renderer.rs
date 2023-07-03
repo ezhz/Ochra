@@ -390,7 +390,7 @@ impl GLWindow
         self.window.set_inner_size(size)
     }
 
-    fn get_position(&self) -> Result
+    fn get_origin(&self) -> Result
     <
         PhysicalPosition<i32>,
         winit::error::NotSupportedError
@@ -399,9 +399,9 @@ impl GLWindow
         self.window.outer_position()
     }
     
-    fn set_position<P: Into<Position>>(&self, position: P) -> ()
+    fn set_origin<O: Into<Position>>(&self, origin: O) -> ()
     {
-        self.window.set_outer_position(position)
+        self.window.set_outer_position(origin)
     }
 
     fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>
@@ -417,7 +417,7 @@ impl GLWindow
         winit::error::NotSupportedError
     >
     {
-        let mut position = self.get_position()?;
+        let mut position = self.get_origin()?;
         let size = self.get_size();
         position.x += (size.width as f32 * 0.5).round() as i32;
         position.y += (size.height as f32 * 0.5).round() as i32;
@@ -503,18 +503,18 @@ impl RenderWindow
         self.window.set_size(size)
     }
 
-    pub fn get_position(&self) -> Result
+    pub fn get_origin(&self) -> Result
     <
         PhysicalPosition<i32>,
         winit::error::NotSupportedError
     >
     {
-        self.window.get_position()
+        self.window.get_origin()
     }
 
-    pub fn set_position<P: Into<Position>>(&self, position: P) -> ()
+    pub fn set_origin<O: Into<Position>>(&self, origin: O) -> ()
     {
-        self.window.set_position(position)
+        self.window.set_origin(origin)
     }
 
     pub fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>

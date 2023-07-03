@@ -1,7 +1,17 @@
 
-use std::{io, fmt, time::*};
-use super::ogl;
-use image::{ImageFormat::*, codecs::*, GenericImageView, DynamicImage::*, ImageDecoder};
+use
+{
+    std::{io, fmt, time::*},
+    super::ogl,
+    image::
+    {
+        ImageFormat::*,
+        codecs::*,
+        GenericImageView,
+        DynamicImage::*,
+        ImageDecoder
+    }
+};
 
 // ----------------------------------------------------------------------------------------------------
 
@@ -477,7 +487,7 @@ where
     }
 }
 
-pub fn open(filepath: &std::path::Path) -> PictureResult<Picture>
+pub fn open_picture(filepath: &std::path::Path) -> PictureResult<Picture>
 {
     image::io::Reader::open(filepath).map_err(PictureError::IO)
         .and_then(Picture::try_from)
@@ -485,9 +495,16 @@ pub fn open(filepath: &std::path::Path) -> PictureResult<Picture>
 
 // ----------------------------------------------------------------------------------------------------
 
-pub fn read_dimensions(filepath: &std::path::Path) -> PictureResult<(u32, u32)>
+pub type PictureDimensions = [u32; 2];
+
+// ----------------------------------------------------------------------------------------------------
+
+pub fn read_dimensions<P: AsRef<std::path::Path>>(filepath: P)
+    -> PictureResult<PictureDimensions>
 {
-    image::image_dimensions(filepath).map_err(PictureError::ImageError)
+    image::image_dimensions(filepath)
+        .map(|(w, h)| [w, h])
+        .map_err(PictureError::ImageError)
 }
 
 // ----------------------------------------------------------------------------------------------------

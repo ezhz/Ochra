@@ -4,11 +4,15 @@
 // ------------------------------------------------------------
 
 mod utility;
+mod cases;
 mod ogl;
 mod painters;
 mod picture;
+mod loader;
+mod reader;
 mod renderer;
-mod filepaths;
+mod interface;
+mod navigator;
 mod app;
 
 // ------------------------------------------------------------
@@ -25,12 +29,10 @@ fn main() -> !
         {
             winit::event::Event::WindowEvent{event: window_event, ..}
                 => app.process_window_event(window_event, control_flow),
-            winit::event::Event::MainEventsCleared => app.refresh()
-                .map_err(|e| utility::show_error_box(&e, true))
-                .unwrap(),
-            winit::event::Event::RedrawRequested(..)
-                => app.draw(),
-            _ => {}
-        }
+            winit::event::Event::MainEventsCleared => app.refresh(),
+            winit::event::Event::RedrawRequested(..) => Ok(app.draw()),
+            _ => Ok(())
+        }.map_err(|e| utility::show_error_box(&e, true))
+            .unwrap()
     )
 }

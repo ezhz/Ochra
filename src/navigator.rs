@@ -1,11 +1,27 @@
 
-use std::{fmt, fs, io, result, sync::mpsc, path::*, time::*};
-use notify::{Watcher as _, DebouncedEvent::*};
+use::
+{
+    std::
+    {
+        fmt,
+        fs,
+        io,
+        result,
+        sync::*,
+        path::*,
+        time::*
+    },
+    notify::
+    {
+        Watcher as _,
+        DebouncedEvent::*
+    }
+};
 
 // ----------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub enum Error
+pub enum NavigatorError
 {
     IO(io::Error),
     Notify(notify::Error),
@@ -14,9 +30,9 @@ pub enum Error
     EmptyList
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for NavigatorError {}
 
-impl fmt::Display for Error
+impl fmt::Display for NavigatorError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result
     {
@@ -38,7 +54,7 @@ impl fmt::Display for Error
 
 // ----------------------------------------------------------------------------------------------------
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type NavigatorResult<T> = std::result::Result<T, NavigatorError>;
 
 // ----------------------------------------------------------------------------------------------------
 
@@ -89,14 +105,14 @@ impl <P: AsRef<Path>> From<P> for FileType
 
 impl FileType
 {
-    fn as_dirpath<P: AsRef<Path>>(path: P) -> Result<PathBuf>
+    fn as_dirpath<P: AsRef<Path>>(path: P) -> NavigatorResult<PathBuf>
     {
         let path = path.as_ref().to_owned();
         let directory_path = match Self::from(&path)
         {
             Self::Directory => path,
             Self::File => path.parent().unwrap().to_owned(),
-            _ => return Err(Error::InvalidPath(path))
+            _ => return Err(NavigatorError::InvalidPath(path))
         };
         Ok(directory_path)
     }
@@ -108,11 +124,11 @@ struct Filepaths(Vec<PathBuf>);
 
 impl Filepaths
 {
-    fn from_path<P: AsRef<Path>>(path: P) -> Result<Self>
+    fn from_path<P: AsRef<Path>>(path: P) -> NavigatorResult<Self>
     {
         let filepaths = 
             fs::read_dir(&FileType::as_dirpath(path)?)
-            .map_err(Error::IO)?
+            .map_err(NavigatorError::IO)?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
             .filter(|path| path.is_file())
@@ -148,7 +164,7 @@ impl Filepaths
 
 // ----------------------------------------------------------------------------------------------------
 
-pub struct LiveNavigator
+pub struct FilepathsNavigator
 {
     filepaths: Filepaths,
     extensions: Vec<&'static str>,
@@ -156,13 +172,13 @@ pub struct LiveNavigator
     watcher: Watcher
 }
 
-impl LiveNavigator
+impl FilepathsNavigator
 {
     pub fn from_path<P: AsRef<Path>>
     (
         path: P,
         extensions: &Vec<&'static str>
-    ) -> Result<Self>
+    ) -> NavigatorResult<Self>
     {
         let path = path.as_ref().to_path_buf();
         let mut filepaths = Filepaths::from_path(&path)?;
@@ -173,28 +189,29 @@ impl LiveNavigator
             true => match filepaths.search_for(&path)
             {
                 Some(index) => index,
-                None => return Err(Error::NoMatchingEntry(path))
+                None => return Err(NavigatorError::NoMatchingEntry(path))
             }
             false => 0
         };
         let extensions = extensions.clone();
-        let watcher = Watcher::watch(&FileType::as_dirpath(path)?).map_err(Error::Notify)?;
+        let watcher = Watcher::watch(&FileType::as_dirpath(path)?).map_err(NavigatorError::Notify)?;
         let this = Self{filepaths, extensions, cursor, watcher};
         this.nonempty()?;
         Ok(this)
     }
 
-    pub fn navigate(&mut self, direction: i64) -> ()
+    pub fn navigate<D>(&mut self, direction: D) -> ()
+    where D: Into<i8>
     {
         let len = self.filepaths.0.len();
-        self.cursor = (self.cursor as i64 + direction)
+        self.cursor = (self.cursor as i64 + direction.into() as i64)
             .rem_euclid(len as _) as _
     }
-    
-    fn nonempty(&self) -> Result<()>
+
+    fn nonempty(&self) -> NavigatorResult<()>
     {
         (!self.filepaths.0.is_empty()).then(|| ())
-            .ok_or(Error::EmptyList)
+            .ok_or(NavigatorError::EmptyList)
     }
     
     pub fn selected(&self) -> &PathBuf
@@ -202,20 +219,20 @@ impl LiveNavigator
         &self.filepaths.0[self.cursor]
     }
 
-    fn rescan(&mut self) -> Result<()>
+    fn rescan(&mut self) -> NavigatorResult<()>
     {
         let selected = self.selected();
         let mut filepaths = Filepaths::from_path(selected)?;
         filepaths.filter_by_extensions(&self.extensions);
         filepaths.sort();
         let cursor = filepaths.search_for(selected)
-            .ok_or(Error::NoMatchingEntry(selected.clone()))?;
+            .ok_or(NavigatorError::NoMatchingEntry(selected.clone()))?;
         self.filepaths = filepaths;
         self.cursor = cursor;
         self.nonempty()
     }
     
-    pub fn refresh(mut self) -> Result<(Self, bool)>
+    pub fn refresh(mut self) -> NavigatorResult<(Self, bool)>
     {
         let messages: Vec<notify::DebouncedEvent> =
             self.watcher.receive().collect();
