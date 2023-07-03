@@ -36,8 +36,8 @@ impl fmt::Display for PictureError
         match self 
         {
             Self::IO(error) => write!(formatter, "{}", error),
-            Self::ImageError(error) => write!(formatter, "{}", error),
-            Self::ICCError(error) => write!(formatter, "{}", error),
+            Self::ImageError(error) => write!(formatter, "{error}"),
+            Self::ICCError(error) => write!(formatter, "ICC error: {error}"),
             Self::UnsupportedChannelCount(count)
                 => write!(formatter, "Unsupported channel count {count}"),
             Self::UnsupportedImageFormat
