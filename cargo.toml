@@ -1,12 +1,13 @@
 
 [package]
 name = 'ochra'
-version = '0.6.1'
+version = '0.7.0'
 edition = '2021'
 
 [dependencies]
 anyhow = '=1.0.71'
 msgbox = '=0.7.0'
+opener = {version = '=0.6.1', features = ['reveal']}
 raw-gl-context = {path = './libs/patch/raw-gl-context'}
 winit = '=0.28'
 raw-window-handle = '=0.5.2'

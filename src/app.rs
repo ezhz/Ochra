@@ -90,6 +90,13 @@ impl App
                     }
                     None => Ok(())
                 }
+                VirtualKeyCode::Return => match &self.reader
+                {
+                    Some(reader) => opener
+                        ::reveal(reader.selected_filepath())
+                        .map_err(Into::into),
+                    None => Ok(())
+                }
                 _ => Ok(())
             }
             WindowEvent::DroppedFile(path) => match self.reader.take()
@@ -111,8 +118,8 @@ impl App
                 button: MouseButton::Right,
                 ..
             } if self.interface.as_ref()
-                .unwrap().is_error() =>
-                Ok(()),
+                .unwrap().is_error()
+                    => Ok(()),
             _ =>
             {
                 let interface = self.interface

@@ -51,6 +51,11 @@ impl PictureDirectoryReader
         )
     }
 
+    pub fn selected_filepath(&self) -> &PathBuf
+    {
+        self.navigator.selected()
+    }
+
     pub fn refresh_filepaths(mut self) -> NavigatorResult<Self>
     {
         let (navigator, dirty) = self.navigator.refresh()?;
