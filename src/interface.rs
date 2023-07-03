@@ -1,10 +1,11 @@
 
 use
 {
-    std::fmt,
-    winit::{event::*, event_loop::*, dpi::*},
+    std::{fmt, time::*},
+    winit::{window::*, event::*, event_loop::*, dpi::*},
     super::
     {
+        utility::*,
         cases::*,
         painters::*,
         picture::*,
@@ -18,7 +19,11 @@ type ScreenSpacePosition<T> = PhysicalPosition<T>;
 
 // ------------------------------------------------------------
 
-struct InterfaceRenderer(RenderWindow);
+struct InterfaceRenderer
+{
+    main: RenderWindow,
+    stamp: RenderWindow
+}
 
 impl InterfaceRenderer
 {
@@ -27,10 +32,18 @@ impl InterfaceRenderer
         event_loop: &EventLoopWindowTarget<()>
     ) -> anyhow::Result<Self>
     {
-        let mut window = RenderWindow::new(event_loop)?;
-        let scale_factor = window.get_scale_factor();
-        window.set_scale_factor(scale_factor);
-        Ok(Self(window))
+        let mut main = RenderWindow::new(event_loop)?;
+        let scale_factor = main.get_scale_factor();
+        main.set_scale_factor(scale_factor);
+        let mut stamp = RenderWindow::new(event_loop)?;
+        let scale_factor = stamp.get_scale_factor();
+        stamp.set_scale_factor(scale_factor);
+        stamp.set_level(WindowLevel::AlwaysOnTop);
+        stamp.set_skip_taskbar(true);
+        let mut this = Self{main, stamp};
+        this.show_stamp_window()?;
+        this.hide_stamp_window();
+        Ok(this)
     }
 
     fn position_size_next
@@ -39,8 +52,8 @@ impl InterfaceRenderer
         targe_size: PhysicalSize<u32>
     ) -> anyhow::Result<()>
     {
-        let previous_center = self.0.get_center()?;
-        self.0.set_size(targe_size);
+        let previous_center = self.main.get_center()?;
+        self.set_window_size(targe_size);
         let screen = self.get_screen_size()?;
         let screen = [screen.width as f32, screen.height as f32];
         let window = self.get_window_size();
@@ -58,35 +71,55 @@ impl InterfaceRenderer
             };
             fitted = [fitted[0] * scale, fitted[1] * scale];
         }
-        self.0.set_size(PhysicalSize::<f32>::from(fitted));
+        self.set_window_size(PhysicalSize::<f32>::from(fitted));
         let mut position = self.get_window_origin()?;
-        let new_center = self.0.get_center()?;
+        let new_center = self.main.get_center()?;
         position.x -= new_center.x - previous_center.x;
         position.y -= new_center.y - previous_center.y;
+        let viewport = GLViewport
+        {
+            origin: [0; 2],
+            size: 
+            [
+                fitted[0] as _,
+                fitted[1] as _
+            ]
+        };
         self.set_window_origin(position);
-        self.set_viewport
-        (
-            GLViewport
-            {
-                origin: [0; 2],
-                size: 
-                [
-                    fitted[0] as _,
-                    fitted[1] as _
-                ]
-            }
-        );
+        self.set_viewport(&viewport);
         Ok(())
+    }
+
+    fn show_stamp_window(&mut self) -> Result
+    <
+        (),
+        winit::error::NotSupportedError
+    >
+    {
+        self.stamp.clear();
+        self.stamp.set_size(self.get_window_size());
+        self.stamp.set_origin(self.get_window_origin()?);
+        self.stamp.set_viewport(&self.get_viewport().clone());
+        self.stamp.set_visible(true);
+        self.stamp.draw();
+        spin(Duration::from_millis(20));
+        Ok(())
+    }
+
+    fn hide_stamp_window(&self) -> ()
+    {
+        self.stamp.clear();
+        self.stamp.set_visible(false)
     }
 
     fn set_window_size<S: Into<Size>>(&mut self, size: S) -> ()
     {
-        self.0.set_size(size)
+        self.main.set_size(size);
     }
 
     fn get_window_size(&self) -> PhysicalSize<u32>
     {
-        self.0.get_size()
+        self.main.get_size()
     }
 
     fn get_window_origin(&self) -> Result
@@ -95,32 +128,34 @@ impl InterfaceRenderer
         winit::error::NotSupportedError
     >
     {
-        self.0.get_origin()
+        self.main.get_origin()
     }
 
     fn set_window_origin<P: Into<Position>>(&self, origin: P) -> ()
     {
-        self.0.set_origin(origin)
+        self.main.set_origin(origin)
     }
 
     fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>
     {
-        self.0.get_screen_size()
+        self.main.get_screen_size()
     }
 
     fn get_viewport(&self) -> &GLViewport
     {
-        self.0.get_viewport()
+        self.main.get_viewport()
     }
 
-    fn set_viewport(&mut self, viewport: GLViewport) -> ()
+    fn set_viewport(&mut self, viewport: &GLViewport) -> ()
     {
-        self.0.set_viewport(viewport)
+        self.main.set_viewport(viewport);
+        self.stamp.set_viewport(viewport)
     }
 
     fn set_scale_factor(&mut self, scale_factor: f64) -> ()
     {
-        self.0.set_scale_factor(scale_factor);
+        self.main.set_scale_factor(scale_factor);
+        self.stamp.set_scale_factor(scale_factor);
         self.draw()
     }
 
@@ -130,46 +165,48 @@ impl InterfaceRenderer
         dimensions: PictureDimensions
     ) -> anyhow::Result<()>
     {
-        self.0.use_blank_mode();
+        self.main.use_blank_mode();
+        self.stamp.use_blank_mode();
         self.position_size_next(dimensions.into())
             .map(|_| self.draw())
     }
 
     fn show_picture(&mut self, mut still: StillPicture) -> PictureResult<()>
     {
-        still.transform_to_icc(self.0.get_monitor_icc())?;
-        self.0.use_picture_mode(&still);
+        still.transform_to_icc(self.main.get_monitor_icc())?;
+        self.main.use_picture_mode(&still);
+        self.stamp.use_picture_mode(&still);
         Ok(self.draw())
     }
 
     fn show_error<E>(&mut self, error: &E) -> anyhow::Result<()>
     where E: std::error::Error
     {
-        self.0.use_error_mode(&error);
-        let error_size = self.0.get_error_box_size();
+        self.main.use_error_mode(&error);
+        let error_size = self.main.get_error_box_size();
         self.position_size_next(error_size)
             .map(|_| self.draw())
     }
 
     fn is_error(&self) -> bool
     {
-        self.0.is_error()
+        self.main.is_error()
     }
 
     fn drag(&self) -> anyhow::Result<()>
     {
-        self.0.drag()
+        self.main.drag()
     }
 
     fn clear(&self) -> ()
     {
-        self.0.clear()
+        self.main.clear()
     }
 
     fn draw(&mut self) -> ()
     {
-        self.0.set_visible(true);
-        self.0.draw()
+        self.main.set_visible(true);
+        self.main.draw()
     }
 }
 
@@ -466,6 +503,7 @@ impl TryFrom<InteractionMachine<NoInteraction>> for InteractionMachine<ZoomInter
             : InteractionMachine<NoInteraction>
     ) -> Result<Self, Self::Error>
     {
+        interface.show_stamp_window()?;
         let interaction = ZoomInteraction::new
         (
             &interface,
@@ -485,11 +523,13 @@ impl TryFrom<InteractionMachine<NoInteraction>> for InteractionMachine<ZoomInter
             ],
             size: interaction.window_size_captured.into()
         };
-        interface.set_viewport(viewport);
+        interface.set_viewport(&viewport);
         interface.clear();
         interface.set_window_origin(PhysicalPosition{x: 0, y: 0});
         interface.set_window_size(interaction.screen_size_captured);
         interface.draw();
+        spin(Duration::from_millis(20));
+        interface.hide_stamp_window();
         Ok(Self{interface, cursor, interaction})
     }
 }
@@ -583,7 +623,7 @@ impl InteractionMachine<ZoomInteraction>
                     &self.interface,
                     &self.cursor
                 )?;
-                self.interface.set_viewport(viewport);
+                self.interface.set_viewport(&viewport);
                 self.draw()
             }
             WindowEvent::MouseInput
@@ -652,10 +692,20 @@ impl From<InteractionMachine<ZoomInteraction>> for InteractionMachine<NoInteract
         };
         let window_size: PhysicalSize<u32> = viewport.size.into();
         viewport.origin = [0; 2];
+        interface.stamp.clear();
+        interface.stamp.set_size(window_size);
+        interface.stamp.set_origin(window_origin);
+        interface.stamp.set_viewport(&viewport);
+        interface.stamp.set_visible(true);
+        interface.stamp.draw();
+        spin(Duration::from_millis(20));
+        interface.clear();
         interface.set_window_size(window_size);
         interface.set_window_origin(window_origin);
-        interface.set_viewport(viewport);
+        interface.set_viewport(&viewport);
         interface.draw();
+        spin(Duration::from_millis(20));
+        interface.hide_stamp_window();
         Self
         {
             interface,

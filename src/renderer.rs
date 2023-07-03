@@ -364,6 +364,26 @@ impl GLWindow
         bail!("Could not query monitor ICC. Unsupported OS.")
     }
 
+    #[cfg(target_os = "windows")]
+    fn set_skip_taskbar(&self, skip: bool) -> ()
+    {
+        use winit::platform::windows::WindowExtWindows;
+        self.window.set_skip_taskbar(skip)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn set_skip_taskbar(&self, skip: bool) -> ()
+    {
+        ()
+    }
+
+    fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>
+    {
+         self.window.current_monitor()
+            .context("Could not detect current monitor")
+            .map(|m| m.size())
+    }
+
     fn make_context_current(&self) -> ()
     {
         unsafe{self.context.make_current()}
@@ -372,6 +392,11 @@ impl GLWindow
     fn set_visible(&self, visible: bool) -> ()
     {
         self.window.set_visible(visible)
+    }
+
+    fn set_level(&self, level: WindowLevel) -> ()
+    {
+        self.window.set_window_level(level)
     }
 
     fn get_scale_factor(&self) -> f64
@@ -402,13 +427,6 @@ impl GLWindow
     fn set_origin<O: Into<Position>>(&self, origin: O) -> ()
     {
         self.window.set_outer_position(origin)
-    }
-
-    fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>
-    {
-         self.window.current_monitor()
-            .context("Could not detect current monitor")
-            .map(|m| m.size())
     }
 
     fn get_center(&self) -> Result
@@ -482,9 +500,24 @@ impl RenderWindow
         &self.icc
     }
     
+    pub fn set_skip_taskbar(&self, skip: bool) -> ()
+    {
+        self.window.set_skip_taskbar(skip)
+    }
+
+    pub fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>
+    {
+        self.window.get_screen_size()
+    }
+
     pub fn set_visible(&self, visible: bool) -> ()
     {
         self.window.set_visible(visible)
+    }
+
+    pub fn set_level(&self, level: WindowLevel) -> ()
+    {
+        self.window.set_level(level)
     }
 
     pub fn get_scale_factor(&self) -> f64
@@ -517,11 +550,6 @@ impl RenderWindow
         self.window.set_origin(origin)
     }
 
-    pub fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>
-    {
-        self.window.get_screen_size()
-    }
-
     pub fn get_center(&self) -> Result
     <
         PhysicalPosition<i32>,
@@ -536,9 +564,9 @@ impl RenderWindow
         &self.viewport
     }
 
-    pub fn set_viewport(&mut self, viewport: GLViewport) -> ()
+    pub fn set_viewport(&mut self, viewport: &GLViewport) -> ()
     {
-        self.viewport = viewport
+        self.viewport = viewport.clone()
     }
 
     pub fn set_scale_factor(&mut self, scale_factor: f64) -> ()
