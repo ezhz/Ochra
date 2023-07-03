@@ -1,21 +1,22 @@
 
 use
 {
-    std::
-    {
-        fmt,
-    },
+    std::fmt,
     winit::{event::*, event_loop::*, dpi::*},
     super::
     {
         cases::*,
-        painters::GLViewport,
+        painters::*,
         picture::*,
-        renderer::*,
+        renderer::*
     }
 };
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
+
+type ScreenSpacePosition<T> = PhysicalPosition<T>;
+
+// ------------------------------------------------------------
 
 struct InterfaceRenderer(RenderWindow);
 
@@ -172,23 +173,19 @@ impl InterfaceRenderer
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 struct DisabledInteraction;
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 struct NoInteraction;
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 struct DragInteraction;
 
-// ----------------------------------------------------------------------------------------------------
-
-type ScreenSpacePosition<T> = PhysicalPosition<T>;
-
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 struct ZoomInteraction
 {
@@ -280,16 +277,16 @@ impl ZoomInteraction
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
-struct InterfaceMachine<I>
+struct InteractionMachine<I>
 {
     interface: InterfaceRenderer,
     cursor: PhysicalPosition<f64>,
     interaction: I
 }
 
-impl<I> InterfaceMachine<I>
+impl<I> InteractionMachine<I>
 {
     fn is_error(&self) -> bool
     {
@@ -302,10 +299,9 @@ impl<I> InterfaceMachine<I>
     }
 }
 
-impl InterfaceMachine<DisabledInteraction>
+impl InteractionMachine<DisabledInteraction>
 {
-    fn new(event_loop: &EventLoopWindowTarget<()>)
-        -> anyhow::Result<Self>
+    fn new(event_loop: &EventLoopWindowTarget<()>) -> anyhow::Result<Self>
     {
         InterfaceRenderer::new(event_loop).map
         (
@@ -334,14 +330,14 @@ impl InterfaceMachine<DisabledInteraction>
     (
         mut self,
         dimensions: PictureDimensions
-    ) -> anyhow::Result<InterfaceMachine<NoInteraction>>
+    ) -> anyhow::Result<InteractionMachine<NoInteraction>>
     {
         self.interface.show_blank(dimensions)?;
         Ok(self.into())
     }
 
     fn show_picture(mut self, still: StillPicture)
-        -> anyhow::Result<InterfaceMachine<NoInteraction>>
+        -> anyhow::Result<InteractionMachine<NoInteraction>>
     {
         match self.interface.show_picture(still)
         {
@@ -351,7 +347,7 @@ impl InterfaceMachine<DisabledInteraction>
     }
 
     fn show_error<E>(mut self, error: &E)
-        -> anyhow::Result<InterfaceMachine<NoInteraction>>
+        -> anyhow::Result<InteractionMachine<NoInteraction>>
     where E: std::error::Error
     {
         self.interface.show_error(error)?;
@@ -359,9 +355,9 @@ impl InterfaceMachine<DisabledInteraction>
     }
 }
 
-impl From<InterfaceMachine<DisabledInteraction>> for InterfaceMachine<NoInteraction>
+impl From<InteractionMachine<DisabledInteraction>> for InteractionMachine<NoInteraction>
 {
-    fn from(current: InterfaceMachine<DisabledInteraction>) -> Self
+    fn from(current: InteractionMachine<DisabledInteraction>) -> Self
     {
         Self
         {
@@ -372,15 +368,15 @@ impl From<InterfaceMachine<DisabledInteraction>> for InterfaceMachine<NoInteract
     }
 }
 
-impl InterfaceMachine<NoInteraction>
+impl InteractionMachine<NoInteraction>
 {
     fn refresh(mut self, event: &WindowEvent) -> anyhow::Result
     <
         Cases3
         <
             Self,
-            InterfaceMachine<DragInteraction>,
-            InterfaceMachine<ZoomInteraction>
+            InteractionMachine<DragInteraction>,
+            InteractionMachine<ZoomInteraction>
         >
     >
     {
@@ -399,7 +395,7 @@ impl InterfaceMachine<NoInteraction>
             {
                 MouseButton::Left => return
                 {
-                    let this: InterfaceMachine<_> = self.into();
+                    let this: InteractionMachine<_> = self.into();
                     this.interface.drag()?;
                     Ok(Cases3::B(this))
                 },
@@ -435,9 +431,9 @@ impl InterfaceMachine<NoInteraction>
 }
 
 
-impl From<InterfaceMachine<NoInteraction>> for InterfaceMachine<DisabledInteraction>
+impl From<InteractionMachine<NoInteraction>> for InteractionMachine<DisabledInteraction>
 {
-    fn from(current: InterfaceMachine<NoInteraction>) -> Self
+    fn from(current: InteractionMachine<NoInteraction>) -> Self
     {
         Self
         {
@@ -448,9 +444,9 @@ impl From<InterfaceMachine<NoInteraction>> for InterfaceMachine<DisabledInteract
     }
 }
 
-impl From<InterfaceMachine<NoInteraction>> for InterfaceMachine<DragInteraction>
+impl From<InteractionMachine<NoInteraction>> for InteractionMachine<DragInteraction>
 {
-    fn from(current: InterfaceMachine<NoInteraction>) -> Self
+    fn from(current: InteractionMachine<NoInteraction>) -> Self
     {
         Self
         {
@@ -461,13 +457,13 @@ impl From<InterfaceMachine<NoInteraction>> for InterfaceMachine<DragInteraction>
     }
 }
 
-impl TryFrom<InterfaceMachine<NoInteraction>> for InterfaceMachine<ZoomInteraction>
+impl TryFrom<InteractionMachine<NoInteraction>> for InteractionMachine<ZoomInteraction>
 {
     type Error = anyhow::Error;
     fn try_from
     (
-        InterfaceMachine{mut interface, cursor, ..}
-            : InterfaceMachine<NoInteraction>
+        InteractionMachine{mut interface, cursor, ..}
+            : InteractionMachine<NoInteraction>
     ) -> Result<Self, Self::Error>
     {
         let interaction = ZoomInteraction::new
@@ -498,14 +494,14 @@ impl TryFrom<InterfaceMachine<NoInteraction>> for InterfaceMachine<ZoomInteracti
     }
 }
 
-impl InterfaceMachine<DragInteraction>
+impl InteractionMachine<DragInteraction>
 {
     fn refresh(mut self, event: &WindowEvent) -> anyhow::Result
     <
         Cases2
         <
             Self,
-            InterfaceMachine<NoInteraction>
+            InteractionMachine<NoInteraction>
         >
     >
     {
@@ -548,9 +544,9 @@ impl InterfaceMachine<DragInteraction>
     }
 }
 
-impl From<InterfaceMachine<DragInteraction>> for InterfaceMachine<NoInteraction>
+impl From<InteractionMachine<DragInteraction>> for InteractionMachine<NoInteraction>
 {
-    fn from(current: InterfaceMachine<DragInteraction>) -> Self
+    fn from(current: InteractionMachine<DragInteraction>) -> Self
     {
         Self
         {
@@ -561,14 +557,14 @@ impl From<InterfaceMachine<DragInteraction>> for InterfaceMachine<NoInteraction>
     }
 }
 
-impl InterfaceMachine<ZoomInteraction>
+impl InteractionMachine<ZoomInteraction>
 {
     fn refresh(mut self, event: &WindowEvent) -> anyhow::Result
     <
         Cases2
         <
             Self,
-            InterfaceMachine<NoInteraction>
+            InteractionMachine<NoInteraction>
         >
     >
     {
@@ -605,9 +601,9 @@ impl InterfaceMachine<ZoomInteraction>
     (
         self,
         dimensions: PictureDimensions
-    ) -> anyhow::Result<InterfaceMachine<NoInteraction>>
+    ) -> anyhow::Result<InteractionMachine<NoInteraction>>
     {
-        let mut this: InterfaceMachine<_> = self.into();
+        let mut this: InteractionMachine<_> = self.into();
         this.interface.show_blank(dimensions).map(|_| this)
     }
 
@@ -616,7 +612,7 @@ impl InterfaceMachine<ZoomInteraction>
         Cases2
         <
             Self,
-            InterfaceMachine<NoInteraction>
+            InteractionMachine<NoInteraction>
         >
     >
     {
@@ -628,20 +624,20 @@ impl InterfaceMachine<ZoomInteraction>
     }
 
     fn show_error<E>(self, error: &E)
-        -> anyhow::Result<InterfaceMachine<NoInteraction>>
+        -> anyhow::Result<InteractionMachine<NoInteraction>>
     where E: std::error::Error
     {
-        let mut this: InterfaceMachine<_> = self.into();
+        let mut this: InteractionMachine<_> = self.into();
         this.interface.show_error(error).map(|_| this)
     }
 }
 
-impl From<InterfaceMachine<ZoomInteraction>> for InterfaceMachine<NoInteraction>
+impl From<InteractionMachine<ZoomInteraction>> for InteractionMachine<NoInteraction>
 {
     fn from
     (
-        InterfaceMachine{mut interface, cursor, interaction}
-            : InterfaceMachine<ZoomInteraction>
+        InteractionMachine{mut interface, cursor, interaction}
+            : InteractionMachine<ZoomInteraction>
     ) -> Self
     {
         let mut viewport = interface.get_viewport().clone();
@@ -669,14 +665,14 @@ impl From<InterfaceMachine<ZoomInteraction>> for InterfaceMachine<NoInteraction>
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 enum InterfaceEnum
 {
-    DisabledInteraction(InterfaceMachine<DisabledInteraction>),
-    NoInteraction(InterfaceMachine<NoInteraction>),
-    DragInteraction(InterfaceMachine<DragInteraction>),
-    ZoomInteraction(InterfaceMachine<ZoomInteraction>)
+    DisabledInteraction(InteractionMachine<DisabledInteraction>),
+    NoInteraction(InteractionMachine<NoInteraction>),
+    DragInteraction(InteractionMachine<DragInteraction>),
+    ZoomInteraction(InteractionMachine<ZoomInteraction>)
 }
 
 impl fmt::Debug for InterfaceEnum
@@ -697,33 +693,33 @@ impl fmt::Debug for InterfaceEnum
     }
 }
 
-impl From<InterfaceMachine<DisabledInteraction>> for InterfaceEnum
+impl From<InteractionMachine<DisabledInteraction>> for InterfaceEnum
 {
-    fn from(machine: InterfaceMachine<DisabledInteraction>) -> Self
+    fn from(machine: InteractionMachine<DisabledInteraction>) -> Self
     {
         Self::DisabledInteraction(machine)
     }
 }
 
-impl From<InterfaceMachine<NoInteraction>> for InterfaceEnum
+impl From<InteractionMachine<NoInteraction>> for InterfaceEnum
 {
-    fn from(machine: InterfaceMachine<NoInteraction>) -> Self
+    fn from(machine: InteractionMachine<NoInteraction>) -> Self
     {
         Self::NoInteraction(machine)
     }
 }
 
-impl From<InterfaceMachine<DragInteraction>> for InterfaceEnum
+impl From<InteractionMachine<DragInteraction>> for InterfaceEnum
 {
-    fn from(machine: InterfaceMachine<DragInteraction>) -> Self
+    fn from(machine: InteractionMachine<DragInteraction>) -> Self
     {
         Self::DragInteraction(machine)
     }
 }
 
-impl From<InterfaceMachine<ZoomInteraction>> for InterfaceEnum
+impl From<InteractionMachine<ZoomInteraction>> for InterfaceEnum
 {
-    fn from(machine: InterfaceMachine<ZoomInteraction>) -> Self
+    fn from(machine: InteractionMachine<ZoomInteraction>) -> Self
     {
         Self::ZoomInteraction(machine)
     }
@@ -731,10 +727,9 @@ impl From<InterfaceMachine<ZoomInteraction>> for InterfaceEnum
 
 impl InterfaceEnum
 {
-    fn new(event_loop: &EventLoopWindowTarget<()>)
-        -> anyhow::Result<Self>
+    fn new(event_loop: &EventLoopWindowTarget<()>) -> anyhow::Result<Self>
     {
-        InterfaceMachine::new(event_loop)
+        InteractionMachine::new(event_loop)
             .map(Into::into)
     }
 
@@ -788,7 +783,7 @@ impl InterfaceEnum
             Self::DragInteraction(..) => unimplemented!(),
             Self::ZoomInteraction(interaction) =>
             {
-                let interaction: InterfaceMachine<NoInteraction>
+                let interaction: InteractionMachine<NoInteraction>
                     = interaction.try_into()?;
                 Self::DisabledInteraction(interaction.into())
             }
@@ -891,7 +886,7 @@ impl InterfaceEnum
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub struct Interface(InterfaceEnum);
 

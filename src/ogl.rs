@@ -1,12 +1,12 @@
 
 use std::{ffi::{CString, c_void}, ops::Deref, rc::Rc, fmt};
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 mod bindings{include!{concat!{env!{"OUT_DIR"}, "/gl_bindings.rs"}}}
 pub use bindings::{*, types::*};
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 #[derive(Clone)]
 pub struct FunctionPointers(Rc<Gl>);
@@ -32,7 +32,7 @@ impl Deref for FunctionPointers
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub struct Buffer
 { 
@@ -67,7 +67,7 @@ impl Deref for Buffer
     }
 }
 
-// ----------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub struct VertexArrayObject
 { 
@@ -102,7 +102,7 @@ impl Deref for VertexArrayObject
     }
 }
 
-// ----------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub struct Shader
 {
@@ -139,7 +139,7 @@ impl Deref for Shader
     }
 }
 
-// ----------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub struct Program
 {
@@ -176,7 +176,7 @@ impl Deref for Program
     }
 }
 
-// ----------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub struct Texture
 {
@@ -211,10 +211,10 @@ impl Deref for Texture
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 #[derive(Debug)]
-pub enum Error
+pub enum OGLError
 {
     ShaderCompilation(String),
     ProgramLinking(String),
@@ -223,9 +223,9 @@ pub enum Error
     GLError(GLenum)
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for OGLError {}
 
-impl fmt::Display for Error
+impl fmt::Display for OGLError
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result
     {
@@ -264,20 +264,20 @@ impl fmt::Display for Error
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, OGLError>;
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub fn check_for_gl_errors(pointers: &FunctionPointers) -> Result<()>
 {
     match unsafe{pointers.GetError()}
     {
         NO_ERROR => Ok(()),
-        flag @ _ => Err(Error::GLError(flag))
+        flag @ _ => Err(OGLError::GLError(flag))
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub fn gl_get(pointers: &FunctionPointers, symbol: GLenum) -> GLint
 {
@@ -286,7 +286,7 @@ pub fn gl_get(pointers: &FunctionPointers, symbol: GLenum) -> GLint
     result
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub fn compile_shader
 (
@@ -329,12 +329,12 @@ pub fn compile_shader
                     String::from_utf8(log).unwrap()
                 }
             };
-            Err(Error::ShaderCompilation(error_message))
+            Err(OGLError::ShaderCompilation(error_message))
         }
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub fn link_program(pointers: &FunctionPointers, shaders: &[&Shader]) -> Result<Program>
 {
@@ -373,12 +373,12 @@ pub fn link_program(pointers: &FunctionPointers, shaders: &[&Shader]) -> Result<
                     String::from_utf8(log).unwrap()
                 }
             };
-            Err(Error::ProgramLinking(error_message))
+            Err(OGLError::ProgramLinking(error_message))
         }
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub fn get_attribute_location
 (
@@ -393,7 +393,7 @@ pub fn get_attribute_location
         let location = pointers.GetAttribLocation(**program, cname.as_ptr());
         match location
         {
-            -1 => Err(Error::AttributeNotFound(name.to_string())),
+            -1 => Err(OGLError::AttributeNotFound(name.to_string())),
             _ => Ok(location as _)
         }
     }
@@ -412,13 +412,13 @@ pub fn get_uniform_location
         let location = pointers.GetUniformLocation(**program, cname.as_ptr());
         match location
         {
-            -1 => Err(Error::UniformNotFound(name.to_string())),
+            -1 => Err(OGLError::UniformNotFound(name.to_string())),
             _ => Ok(location)
         }
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub trait UniformDataType
 {
@@ -461,7 +461,7 @@ macro_rules! impl_uniforms
 
 impl_uniforms!{}
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 fn fill_buffer<T>
 (
@@ -483,7 +483,7 @@ fn fill_buffer<T>
     }
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub trait AttributeBaseDataType
 {
@@ -585,7 +585,7 @@ macro_rules! impl_attributes
 
 impl_attributes!{}
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 #[derive(Clone, Copy)]
 pub enum ChannelCount
@@ -603,7 +603,7 @@ pub struct Image<'data, D>
     pub channel_count: ChannelCount
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 #[non_exhaustive]
 #[derive(Clone, Copy)]
@@ -623,7 +623,7 @@ pub enum InterpolationType
     Linear
 }
 
-// ----------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------
 
 pub trait TextureBaseDataType
 {
