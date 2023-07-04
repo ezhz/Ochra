@@ -1,7 +1,7 @@
 
 use
 {
-    std::{fmt, time::*},
+    std::{fmt, time::*, ops::*},
     winit::{window::*, event::*, event_loop::*, dpi::*},
     super::
     {
@@ -9,7 +9,7 @@ use
         cases::*,
         painters::*,
         picture::*,
-        renderer::*
+        renderer
     }
 };
 
@@ -21,6 +21,56 @@ const SPIN_TIME: Duration = Duration::from_millis(10);
 // ------------------------------------------------------------
 
 type ScreenSpacePosition<T> = PhysicalPosition<T>;
+
+// ------------------------------------------------------------
+
+struct RenderWindow
+{
+    window: renderer::RenderWindow,
+    level: WindowLevel
+}
+
+impl Deref for RenderWindow
+{
+    type Target = renderer::RenderWindow;
+    fn deref(&self) -> &Self::Target
+    {
+        &self.window    
+    }
+}
+
+impl DerefMut for RenderWindow
+{
+    fn deref_mut(&mut self) -> &mut Self::Target
+    {
+        &mut self.window
+    }
+}
+
+impl RenderWindow
+{
+    fn new
+    (
+        event_loop: &EventLoopWindowTarget<()>
+    ) -> anyhow::Result<Self>
+    {
+        let window = renderer::RenderWindow::new(event_loop)?;
+        let level = WindowLevel::Normal;
+        window.set_level(level);
+        Ok(Self{window, level})
+    }
+
+    fn set_level(&mut self, level: WindowLevel) -> ()
+    {
+        self.window.set_level(level);
+        self.level = level
+    }
+
+    fn get_level(&self) -> WindowLevel
+    {
+        self.level
+    }
+}
 
 // ------------------------------------------------------------
 
@@ -51,9 +101,9 @@ impl InterfaceRenderer
         Ok(Self{main, stamp})
     }
 
-    fn window_id(&self) -> WindowId
+    fn get_window_id(&self) -> WindowId
     {
-        self.main.id()
+        self.main.get_id()
     }
 
     fn position_size_next
@@ -137,6 +187,18 @@ impl InterfaceRenderer
     fn get_screen_size(&self) -> anyhow::Result<PhysicalSize<u32>>
     {
         self.main.get_screen_size()
+    }
+
+    fn toggle_always_on_top(&mut self) -> ()
+    {
+        match self.main.get_level()
+        {
+            WindowLevel::AlwaysOnBottom => unreachable!(),
+            WindowLevel::Normal => self.main
+                .set_level(WindowLevel::AlwaysOnTop),
+            WindowLevel::AlwaysOnTop => self.main
+                .set_level(WindowLevel::Normal)
+        }
     }
 
     fn get_viewport(&self) -> &GLViewport
@@ -228,7 +290,8 @@ struct ZoomInteraction
     window_origin_captured: ScreenSpacePosition<i32>,
     window_size_captured: PhysicalSize<u32>,
     screen_size_captured: PhysicalSize<u32>,
-    zoom_bounds: [f64; 2]
+    zoom_bounds: [f64; 2],
+    was_always_on_top: bool
 }
 
 impl ZoomInteraction
@@ -237,7 +300,7 @@ impl ZoomInteraction
 
     fn new
     (
-        interface: &InterfaceRenderer,
+        interface: &mut InterfaceRenderer,
         cursor: PhysicalPosition<f64>
     ) -> anyhow::Result<Self>
     {
@@ -247,7 +310,17 @@ impl ZoomInteraction
             window_origin_captured: interface.get_window_origin()?,
             window_size_captured: interface.get_window_size(),
             screen_size_captured: interface.get_screen_size()?,
-            zoom_bounds: [0.0; 2]
+            zoom_bounds: [0.0; 2],
+            was_always_on_top: match interface.main.get_level()
+            {
+                WindowLevel::AlwaysOnBottom => unreachable!(),
+                WindowLevel::Normal => false,
+                WindowLevel::AlwaysOnTop =>
+                {
+                    interface.main.set_level(WindowLevel::Normal);
+                    true
+                }
+            }
         };
         let screen_ratio = this.screen_size_captured.width as f64
             / this.screen_size_captured.height as f64;
@@ -342,9 +415,9 @@ struct InteractionMachine<I>
 
 impl<I> InteractionMachine<I>
 {
-    fn window_id(&self) -> WindowId
+    fn get_window_id(&self) -> WindowId
     {
-        self.interface.window_id()
+        self.interface.get_window_id()
     }
 
     fn is_error(&self) -> bool
@@ -467,6 +540,11 @@ impl InteractionMachine<NoInteraction>
         Ok(Cases3::A(self))
     }
 
+    fn toggle_always_on_top(&mut self) -> ()
+    {
+        self.interface.toggle_always_on_top()
+    }
+
     fn show_blank
     (
         &mut self,
@@ -528,14 +606,16 @@ impl TryFrom<InteractionMachine<NoInteraction>> for InteractionMachine<ZoomInter
         interface.stamp.clear();
         interface.stamp.set_level(WindowLevel::AlwaysOnTop);
         spin(SPIN_TIME);
-        interface.stamp.set_size(interface.get_window_size());
+        let window_size = interface.get_window_size();
+        interface.stamp.set_size(window_size);
         interface.stamp.set_origin(interface.get_window_origin()?);
-        interface.stamp.set_viewport(&interface.get_viewport().clone());
+        let viewport_size = interface.get_viewport().clone();
+        interface.stamp.set_viewport(&viewport_size);
         interface.stamp.draw();
         spin(SPIN_TIME);
         let interaction = ZoomInteraction::new
         (
-            &interface,
+            &mut interface,
             cursor
         )?;
         let window_origin = interface.get_window_origin()?;
@@ -742,6 +822,10 @@ impl From<InteractionMachine<ZoomInteraction>> for InteractionMachine<NoInteract
         interface.stamp.clear();
         interface.stamp.set_level(WindowLevel::AlwaysOnBottom);
         spin(SPIN_TIME);
+        if interaction.was_always_on_top
+        {
+            interface.main.set_level(WindowLevel::AlwaysOnTop)
+        }
         Self
         {
             interface,
@@ -819,18 +903,18 @@ impl InterfaceEnum
             .map(Into::into)
     }
 
-    fn window_id(&self) -> WindowId
+    fn get_window_id(&self) -> WindowId
     {
         match self
         {
             Self::DisabledInteraction(interaction)
-                => interaction.window_id(),
+                => interaction.get_window_id(),
             Self::NoInteraction(interaction)
-                => interaction.window_id(),
+                => interaction.get_window_id(),
             Self::DragInteraction(interaction)
-                => interaction.window_id(),
+                => interaction.get_window_id(),
             Self::ZoomInteraction(interaction)
-                => interaction.window_id()
+                => interaction.get_window_id()
         }
     }
 
@@ -871,6 +955,21 @@ impl InterfaceEnum
                     Cases2::B(interaction) => interaction.into()
                 }
             )
+        }
+    }
+
+    fn toggle_always_on_top(&mut self) -> ()
+    {
+        match self
+        {
+            Self::DisabledInteraction(..)
+                => {}
+            Self::NoInteraction(interaction)
+                => interaction.toggle_always_on_top(),
+            Self::DragInteraction(..)
+                => {}
+            Self::ZoomInteraction(..)
+                => {}
         }
     }
 
@@ -998,14 +1097,19 @@ impl Interface
         InterfaceEnum::new(event_loop).map(Self)
     }
 
-    pub fn window_id(&self) -> WindowId
+    pub fn get_window_id(&self) -> WindowId
     {
-        self.0.window_id()
+        self.0.get_window_id()
     }
 
     pub fn refresh(self, event: &WindowEvent) -> anyhow::Result<Self>
     {
         self.0.refresh(event).map(Self)
+    }
+
+    pub fn toggle_always_on_top(&mut self) -> ()
+    {
+        self.0.toggle_always_on_top()
     }
 
     pub fn disable_interaction(self) -> anyhow::Result<Self>

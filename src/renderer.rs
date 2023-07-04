@@ -500,7 +500,7 @@ impl RenderWindow
         )
     }
 
-    pub fn id(&self) -> WindowId
+    pub fn get_id(&self) -> WindowId
     {
         self.window.id()
     }

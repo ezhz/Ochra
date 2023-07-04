@@ -55,7 +55,7 @@ impl App
     ) -> anyhow::Result<()>
     {
         if self.interface.as_ref().unwrap()
-            .window_id() == window_id
+            .get_window_id() == window_id
         {
             return match event
             {
@@ -101,6 +101,12 @@ impl App
                             .map_err(Into::into),
                         None => Ok(())
                     }
+                    VirtualKeyCode::T => Ok
+                    (
+                        self.interface
+                            .as_mut().unwrap()
+                            .toggle_always_on_top()
+                    ),
                     _ => Ok(())
                 }
                 WindowEvent::DroppedFile(path) => match self.reader.take()
