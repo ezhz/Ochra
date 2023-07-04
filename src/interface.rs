@@ -15,6 +15,10 @@ use
 
 // ------------------------------------------------------------
 
+const MIN_WINDOW_SIZE: f64 = 100.0;
+
+// ------------------------------------------------------------
+
 type ScreenSpacePosition<T> = PhysicalPosition<T>;
 
 // ------------------------------------------------------------
@@ -55,21 +59,31 @@ impl InterfaceRenderer
         let previous_center = self.main.get_center()?;
         self.set_window_size(targe_size);
         let screen = self.get_screen_size()?;
-        let screen = [screen.width as f32, screen.height as f32];
+        let screen = [screen.width as f64, screen.height as f64];
         let window = self.get_window_size();
-        let window = [window.width as f32, window.height as f32];
+        let window = [window.width as f64, window.height as f64];
+        let window_ratio = window[0] / window[1];
         let mut fitted = window;
         let scale = 0.8;
         if window[0] > screen[0] * scale || window[1] > screen[1] * scale
         {
             let screen_ratio = screen[0] / screen[1];
-            let window_ratio = window[0] / window[1];
             fitted = match screen_ratio > window_ratio
             {
                 true => [window[0] * screen[1] / window[1], screen[1]],
                 false => [screen[0], window[1] * screen[0] / window[0]]
             };
             fitted = [fitted[0] * scale, fitted[1] * scale];
+        }
+        if fitted[0] < MIN_WINDOW_SIZE || fitted[1] < MIN_WINDOW_SIZE
+        {
+            let scale = match window_ratio > 1.0
+            {
+                true => MIN_WINDOW_SIZE / fitted[0],
+                false => MIN_WINDOW_SIZE / fitted[1]
+            };
+            fitted[0] *= scale;
+            fitted[1] *= scale
         }
         self.set_window_size(PhysicalSize::<f32>::from(fitted));
         let mut position = self.get_window_origin()?;
@@ -229,7 +243,8 @@ struct ZoomInteraction
     cursor_captured: ScreenSpacePosition<f64>,
     window_origin_captured: ScreenSpacePosition<i32>,
     window_size_captured: PhysicalSize<u32>,
-    screen_size_captured: PhysicalSize<u32>
+    screen_size_captured: PhysicalSize<u32>,
+    zoom_bounds: [f64; 2]
 }
 
 impl ZoomInteraction
@@ -242,12 +257,29 @@ impl ZoomInteraction
         cursor: PhysicalPosition<f64>
     ) -> anyhow::Result<Self>
     {
-        let this = Self 
+        let mut this = Self
         {
             cursor_captured: Self::cursor_to_screen_space(interface, cursor)?,
             window_origin_captured: interface.get_window_origin()?,
             window_size_captured: interface.get_window_size(),
-            screen_size_captured: interface.get_screen_size()?
+            screen_size_captured: interface.get_screen_size()?,
+            zoom_bounds: [0.0; 2]
+        };
+        let screen_ratio = this.screen_size_captured.width as f64
+            / this.screen_size_captured.height as f64;
+        let window_ratio = this.window_size_captured.width as f64
+            / this.window_size_captured.height as f64;
+        this.zoom_bounds[0] = match window_ratio > 1.0
+        {
+            true => MIN_WINDOW_SIZE / this.window_size_captured.width as f64,
+            false => MIN_WINDOW_SIZE / this.window_size_captured.height as f64
+        };
+        this.zoom_bounds[1] = match screen_ratio > window_ratio
+        {
+            true => this.screen_size_captured.height as f64
+                / this.window_size_captured.height as f64,
+            false => this.screen_size_captured.width as f64
+                / this.window_size_captured.width as f64
         };
         Ok(this)
     }
@@ -290,6 +322,7 @@ impl ZoomInteraction
                 true => 1.0 / (1.0 - delta)
             };
         };
+        zoom = zoom.clamp(self.zoom_bounds[0], self.zoom_bounds[1]);
         let mut origin =
         [
             (
