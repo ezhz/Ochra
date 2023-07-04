@@ -91,6 +91,7 @@ impl InterfaceRenderer
         let scale_factor = main.get_scale_factor();
         main.set_scale_factor(scale_factor);
         let mut stamp = RenderWindow::new(event_loop)?;
+        stamp.set_size(PhysicalSize{width: 0, height: 0});
         let scale_factor = stamp.get_scale_factor();
         stamp.set_scale_factor(scale_factor);
         stamp.set_level(WindowLevel::AlwaysOnBottom);
@@ -641,6 +642,7 @@ impl TryFrom<InteractionMachine<NoInteraction>> for InteractionMachine<ZoomInter
         spin(SPIN_TIME);
         interface.stamp.clear();
         interface.stamp.set_level(WindowLevel::AlwaysOnBottom);
+        interface.stamp.set_size(PhysicalSize{width: 0, height: 0});
         spin(SPIN_TIME);
         Ok(Self{interface, cursor, interaction})
     }
@@ -821,6 +823,7 @@ impl From<InteractionMachine<ZoomInteraction>> for InteractionMachine<NoInteract
         spin(SPIN_TIME);
         interface.stamp.clear();
         interface.stamp.set_level(WindowLevel::AlwaysOnBottom);
+        interface.stamp.set_size(PhysicalSize{width: 0, height: 0});
         spin(SPIN_TIME);
         if interaction.was_always_on_top
         {
