@@ -16,6 +16,7 @@ use
 // ------------------------------------------------------------
 
 const MIN_WINDOW_SIZE: f64 = 100.0;
+const SPIN_TIME: Duration = Duration::from_millis(10);
 
 // ------------------------------------------------------------
 
@@ -42,12 +43,17 @@ impl InterfaceRenderer
         let mut stamp = RenderWindow::new(event_loop)?;
         let scale_factor = stamp.get_scale_factor();
         stamp.set_scale_factor(scale_factor);
-        stamp.set_level(WindowLevel::AlwaysOnTop);
+        stamp.set_level(WindowLevel::AlwaysOnBottom);
         stamp.set_skip_taskbar(true);
-        let mut this = Self{main, stamp};
-        this.show_stamp_window()?;
-        this.hide_stamp_window();
-        Ok(this)
+        stamp.clear();
+        spin(SPIN_TIME);
+        stamp.set_visible(true);
+        Ok(Self{main, stamp})
+    }
+
+    fn window_id(&self) -> WindowId
+    {
+        self.main.id()
     }
 
     fn position_size_next
@@ -102,28 +108,6 @@ impl InterfaceRenderer
         self.set_window_origin(position);
         self.set_viewport(&viewport);
         Ok(())
-    }
-
-    fn show_stamp_window(&mut self) -> Result
-    <
-        (),
-        winit::error::NotSupportedError
-    >
-    {
-        self.stamp.clear();
-        self.stamp.set_size(self.get_window_size());
-        self.stamp.set_origin(self.get_window_origin()?);
-        self.stamp.set_viewport(&self.get_viewport().clone());
-        self.stamp.set_visible(true);
-        self.stamp.draw();
-        spin(Duration::from_millis(20));
-        Ok(())
-    }
-
-    fn hide_stamp_window(&self) -> ()
-    {
-        self.stamp.clear();
-        self.stamp.set_visible(false)
     }
 
     fn set_window_size<S: Into<Size>>(&mut self, size: S) -> ()
@@ -318,8 +302,8 @@ impl ZoomInteraction
         {
             zoom *= match delta < 0.0
             {
-                false => 1.0 + delta,
-                true => 1.0 / (1.0 - delta)
+                true => 1.0 / (1.0 - delta),
+                false => 1.0 + delta
             };
         };
         zoom = zoom.clamp(self.zoom_bounds[0], self.zoom_bounds[1]);
@@ -358,6 +342,11 @@ struct InteractionMachine<I>
 
 impl<I> InteractionMachine<I>
 {
+    fn window_id(&self) -> WindowId
+    {
+        self.interface.window_id()
+    }
+
     fn is_error(&self) -> bool
     {
         self.interface.is_error()
@@ -536,7 +525,14 @@ impl TryFrom<InteractionMachine<NoInteraction>> for InteractionMachine<ZoomInter
             : InteractionMachine<NoInteraction>
     ) -> Result<Self, Self::Error>
     {
-        interface.show_stamp_window()?;
+        interface.stamp.clear();
+        interface.stamp.set_level(WindowLevel::AlwaysOnTop);
+        spin(SPIN_TIME);
+        interface.stamp.set_size(interface.get_window_size());
+        interface.stamp.set_origin(interface.get_window_origin()?);
+        interface.stamp.set_viewport(&interface.get_viewport().clone());
+        interface.stamp.draw();
+        spin(SPIN_TIME);
         let interaction = ZoomInteraction::new
         (
             &interface,
@@ -556,13 +552,16 @@ impl TryFrom<InteractionMachine<NoInteraction>> for InteractionMachine<ZoomInter
             ],
             size: interaction.window_size_captured.into()
         };
-        interface.set_viewport(&viewport);
         interface.clear();
+        spin(SPIN_TIME);
+        interface.set_viewport(&viewport);
         interface.set_window_origin(PhysicalPosition{x: 0, y: 0});
         interface.set_window_size(interaction.screen_size_captured);
         interface.draw();
-        spin(Duration::from_millis(20));
-        interface.hide_stamp_window();
+        spin(SPIN_TIME);
+        interface.stamp.clear();
+        interface.stamp.set_level(WindowLevel::AlwaysOnBottom);
+        spin(SPIN_TIME);
         Ok(Self{interface, cursor, interaction})
     }
 }
@@ -726,19 +725,23 @@ impl From<InteractionMachine<ZoomInteraction>> for InteractionMachine<NoInteract
         let window_size: PhysicalSize<u32> = viewport.size.into();
         viewport.origin = [0; 2];
         interface.stamp.clear();
+        interface.stamp.set_level(WindowLevel::AlwaysOnTop);
+        spin(SPIN_TIME);
         interface.stamp.set_size(window_size);
         interface.stamp.set_origin(window_origin);
         interface.stamp.set_viewport(&viewport);
-        interface.stamp.set_visible(true);
         interface.stamp.draw();
-        spin(Duration::from_millis(20));
+        spin(SPIN_TIME);
         interface.clear();
+        spin(SPIN_TIME);
         interface.set_window_size(window_size);
         interface.set_window_origin(window_origin);
         interface.set_viewport(&viewport);
         interface.draw();
-        spin(Duration::from_millis(20));
-        interface.hide_stamp_window();
+        spin(SPIN_TIME);
+        interface.stamp.clear();
+        interface.stamp.set_level(WindowLevel::AlwaysOnBottom);
+        spin(SPIN_TIME);
         Self
         {
             interface,
@@ -814,6 +817,21 @@ impl InterfaceEnum
     {
         InteractionMachine::new(event_loop)
             .map(Into::into)
+    }
+
+    fn window_id(&self) -> WindowId
+    {
+        match self
+        {
+            Self::DisabledInteraction(interaction)
+                => interaction.window_id(),
+            Self::NoInteraction(interaction)
+                => interaction.window_id(),
+            Self::DragInteraction(interaction)
+                => interaction.window_id(),
+            Self::ZoomInteraction(interaction)
+                => interaction.window_id()
+        }
     }
 
     fn refresh(self, event: &WindowEvent) -> anyhow::Result<Self>
@@ -978,6 +996,11 @@ impl Interface
     pub fn new(event_loop: &EventLoopWindowTarget<()>) -> anyhow::Result<Self>
     {
         InterfaceEnum::new(event_loop).map(Self)
+    }
+
+    pub fn window_id(&self) -> WindowId
+    {
+        self.0.window_id()
     }
 
     pub fn refresh(self, event: &WindowEvent) -> anyhow::Result<Self>

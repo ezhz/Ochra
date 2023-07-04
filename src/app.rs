@@ -2,7 +2,7 @@
 use
 {
     std::path::*,
-    winit::{event::*, event_loop::*},
+    winit::{window::*, event::*, event_loop::*},
     super::
     {
         loader::*,
@@ -50,85 +50,91 @@ impl App
     (
         &mut self,
         event: WindowEvent,
+        window_id: WindowId,
         control_flow: &mut ControlFlow
     ) -> anyhow::Result<()>
     {
-        match event
+        if self.interface.as_ref().unwrap()
+            .window_id() == window_id
         {
-            WindowEvent::KeyboardInput
+            return match event
             {
-                input: KeyboardInput
+                WindowEvent::KeyboardInput
                 {
-                    state: ElementState::Pressed,
-                    virtual_keycode: Some(keycode),
+                    input: KeyboardInput
+                    {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    },
                     ..
-                },
-                ..
-            } => match keycode
-            {
-                VirtualKeyCode::Escape =>
+                } => match keycode
                 {
-                    self.disable_interaction()?;
-                    Ok(control_flow.set_exit())
-                }
-                VirtualKeyCode::Left | VirtualKeyCode::Right
-                    => match self.reader.take()
-                {
-                    Some(mut reader) =>
+                    VirtualKeyCode::Escape =>
                     {
                         self.disable_interaction()?;
-                        reader.navigate
-                        (
-                            match keycode
-                            {
-                                VirtualKeyCode::Left => -1,
-                                VirtualKeyCode::Right => 1,
-                                _ => unreachable!()
-                            }
-                        );
-                        Ok(self.reader = Some(reader))
+                        Ok(control_flow.set_exit())
                     }
-                    None => Ok(())
+                    VirtualKeyCode::Left | VirtualKeyCode::Right
+                        => match self.reader.take()
+                    {
+                        Some(mut reader) =>
+                        {
+                            self.disable_interaction()?;
+                            reader.navigate
+                            (
+                                match keycode
+                                {
+                                    VirtualKeyCode::Left => -1,
+                                    VirtualKeyCode::Right => 1,
+                                    _ => unreachable!()
+                                }
+                            );
+                            Ok(self.reader = Some(reader))
+                        }
+                        None => Ok(())
+                    }
+                    VirtualKeyCode::Return => match &self.reader
+                    {
+                        Some(reader) => opener
+                            ::reveal(reader.selected_filepath())
+                            .map_err(Into::into),
+                        None => Ok(())
+                    }
+                    _ => Ok(())
                 }
-                VirtualKeyCode::Return => match &self.reader
+                WindowEvent::DroppedFile(path) => match self.reader.take()
                 {
-                    Some(reader) => opener
-                        ::reveal(reader.selected_filepath())
-                        .map_err(Into::into),
-                    None => Ok(())
+                    Some(reader) => match reader.change_path(path)
+                    {
+                        Ok(reader) => Ok(self.reader = Some(reader)),
+                        Err(error) => Ok(self.show_error(&error)?)
+                    }
+                    None => match PictureDirectoryReader::new(path)
+                    {
+                        Ok(reader) => Ok(self.reader = Some(reader)),
+                        Err(error) => Ok(self.show_error(&error)?)
+                    }
                 }
-                _ => Ok(())
-            }
-            WindowEvent::DroppedFile(path) => match self.reader.take()
-            {
-                Some(reader) => match reader.change_path(path)
+                WindowEvent::MouseInput
                 {
-                    Ok(reader) => Ok(self.reader = Some(reader)),
-                    Err(error) => Ok(self.show_error(&error)?)
-                }
-                None => match PictureDirectoryReader::new(path)
+                    state: ElementState::Pressed,
+                    button: MouseButton::Right,
+                    ..
+                } if self.interface.as_ref()
+                    .unwrap().is_error()
+                        => Ok(()),
+                _ =>
                 {
-                    Ok(reader) => Ok(self.reader = Some(reader)),
-                    Err(error) => Ok(self.show_error(&error)?)
+                    let interface = self.interface
+                        .take().unwrap()
+                        .refresh(&event)?;
+                    self.interface = Some(interface);
+                    Ok(())
                 }
-            }
-            WindowEvent::MouseInput
-            {
-                state: ElementState::Pressed,
-                button: MouseButton::Right,
-                ..
-            } if self.interface.as_ref()
-                .unwrap().is_error()
-                    => Ok(()),
-            _ =>
-            {
-                let interface = self.interface
-                    .take().unwrap()
-                    .refresh(&event)?;
-                self.interface = Some(interface);
-                Ok(())
             }
         }
+        Ok(())
     }
 
     fn disable_interaction(&mut self) -> anyhow::Result<()>

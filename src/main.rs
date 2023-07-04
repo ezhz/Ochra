@@ -27,8 +27,8 @@ fn main() -> !
     (
         move |event, _, control_flow| match event
         {
-            winit::event::Event::WindowEvent{event: window_event, ..}
-                => app.process_window_event(window_event, control_flow),
+            winit::event::Event::WindowEvent{event: window_event, window_id}
+                => app.process_window_event(window_event, window_id, control_flow),
             winit::event::Event::MainEventsCleared => app.refresh(),
             winit::event::Event::RedrawRequested(..) => Ok(app.draw()),
             _ => Ok(())

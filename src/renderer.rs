@@ -309,6 +309,11 @@ impl GLWindow
         Ok(Self{window, context, pointers})
     }
 
+    fn id(&self) -> WindowId
+    {
+        self.window.id()
+    }
+
     #[cfg(target_os = "windows")]
     fn query_monitor_icc(&self) -> anyhow::Result<PathBuf>
     {
@@ -493,6 +498,11 @@ impl RenderWindow
                 icc
             }
         )
+    }
+
+    pub fn id(&self) -> WindowId
+    {
+        self.window.id()
     }
 
     pub fn get_monitor_icc(&self) -> &lcms2::Profile
